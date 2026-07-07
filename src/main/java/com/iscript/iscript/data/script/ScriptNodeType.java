@@ -1,0 +1,31 @@
+package com.iscript.iscript.data.script;
+
+public enum ScriptNodeType {
+    START,
+    DELAY,
+    IF,
+    THEN,
+    CAMERA,
+    DIALOG,
+    GIVE_ITEM,
+    SPAWN_ENTITY,
+    SET_BLOCK,
+    PLAY_SOUND,
+    RUN_COMMAND,
+    PARTICLE,
+    TELEPORT,
+    SET_GAMEMODE,
+    SET_HEALTH,
+    FREEZE,
+    UNFREEZE,
+    NPC_ANIMATE,
+    NPC_MOVE,
+    QUEST_START,
+    QUEST_COMPLETE,
+    SET_DATA,
+    SET_FACTION,
+    SET_REPUTATION,
+    WORLD_SET,
+    SCRIPT_JS,
+    STOP
+}
