@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "iscript:block/script_block"
+    }
+  }
+}

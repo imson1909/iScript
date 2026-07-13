@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "iscript:block/region_block" }
+  }
+}
