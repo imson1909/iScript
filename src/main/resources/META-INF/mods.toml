@@ -1,0 +1,29 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+
+[[mods]]
+modId="iscript"
+version="${file.jarVersion}"
+displayName="iScript"
+logoFile="logo.png"
+credits=""
+authors="imson1909"
+description='''
+Visual scripting framework for Minecraft 1.20.1.
+Node-based dialog editor, event graphs, quest system, NPC editor, cutscene timeline and region effects.
+'''
+
+[[dependencies.iscript]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.iscript]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.21)"
+ordering="NONE"
+side="BOTH"
