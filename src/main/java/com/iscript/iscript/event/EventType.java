@@ -1,0 +1,22 @@
+package com.iscript.iscript.event;
+
+public enum EventType {
+    PLAYER_JOIN,
+    PLAYER_LEAVE,
+    PLAYER_DEATH,
+    PLAYER_RESPAWN,
+    BLOCK_BREAK,
+    BLOCK_PLACE,
+    ITEM_USE,
+    ITEM_PICKUP,
+    CHAT,
+    ENTITY_DAMAGE,
+    ENTITY_KILL,
+    PLAYER_INTERACT_ENTITY,
+    PLAYER_INTERACT_BLOCK,
+    TICK,
+    REGION_ENTER,
+    REGION_EXIT,
+    QUEST_COMPLETE,
+    DIALOG_OPEN
+}

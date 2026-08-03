@@ -1,0 +1,15 @@
+Changelog
+[0.0.1-alpha] — 2026-07-18
+Added
+Initial release.
+Dialog editor with node-based graph (NPC, Player, Choice, Condition, Action nodes).
+Event graph editor (Event, Trigger, Condition, Action, Delay, Random, Loop, Stop nodes).
+Quest editor with stages, objectives and reward system.
+NPC editor with AI, factions, combat and trade configuration.
+Cutscene editor with timeline, camera paths and spline interpolation.
+Region editor with enter/exit/tick effects.
+In-game dashboard accessible via Script Block.
+Russian and English localization.
+Known Issues
+Visual connection lines may have minor arrow alignment at extreme zoom levels.
+Some UI scaling edge cases on very small window sizes.
