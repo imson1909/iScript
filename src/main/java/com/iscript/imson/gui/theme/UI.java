@@ -6,6 +6,20 @@ import net.minecraft.client.gui.GuiGraphics;
 public final class UI {
     private UI() {}
 
+    public static void panel(GuiGraphics g, int x, int y, int w, int h) {
+        g.fill(x, y, x + w, y + h, Theme.BG_PANEL);
+        g.renderOutline(x, y, w, h, Theme.BORDER);
+    }
+
+    public static void panelAccent(GuiGraphics g, int x, int y, int w, int h) {
+        g.fill(x, y, x + w, y + h, Theme.BG_PANEL);
+        g.renderOutline(x, y, w, h, Theme.BORDER_ACCENT);
+    }
+
+    public static void inner(GuiGraphics g, int x, int y, int w, int h) {
+        g.fill(x, y, x + w, y + h, Theme.BG_INNER);
+    }
+
     public static void row(GuiGraphics g, int x, int y, int w, int h, boolean selected, boolean hovered) {
         int bg = selected ? 0xFF334455 : (hovered ? Theme.BG_HOVER : Theme.BG_INNER);
         g.fill(x, y, x + w, y + h, bg);
