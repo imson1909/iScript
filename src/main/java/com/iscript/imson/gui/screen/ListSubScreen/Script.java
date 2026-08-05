@@ -141,6 +141,7 @@ public class Script extends DashboardScreen.SubScreen {
         if (lifecycle.save().isDirty()) {
             lifecycle.state().saveDebounce = 0;
             sendSave();
+            lifecycle.save().clearDirty();
         }
         IScriptNetwork.sendToServer(new ServerCommandPacket(ServerCommandPacket.Type.RUN_SCRIPT, ServerCommandPacket.runScriptToTag(selId)));
     }
