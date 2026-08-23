@@ -66,15 +66,15 @@ dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 
-    embed('org.graalvm.sdk:graal-sdk:23.0.0') {
+    embed('org.graalvm.sdk:graal-sdk:22.3.5') {
         exclude group: 'org.graalvm.regex'
     }
-    embed('org.graalvm.js:js:23.0.0') {
+    embed('org.graalvm.js:js:22.3.5') {
         exclude group: 'org.graalvm.regex'
         exclude group: 'com.ibm.icu'
         exclude group: 'org.ow2.asm'
     }
-    embed('org.graalvm.truffle:truffle-api:23.0.0')
+    embed('org.graalvm.truffle:truffle-api:22.3.5')
 }
 
 tasks.named('jar', Jar).configure {

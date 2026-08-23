@@ -5,9 +5,17 @@ import com.iscript.imson.capability.ModCapabilities;
 import com.iscript.imson.network.IScriptNetwork;
 import com.iscript.imson.network.packet.ClientEffectPacket;
 import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundSetActionBarTextPacket;
+import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket;
+import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
+import net.minecraft.network.protocol.game.ClientboundStopSoundPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -93,6 +101,74 @@ public class PlayerAPI {
     }
 
     @HostAccess.Export
+    public int getGameMode() {
+        if (root.player instanceof ServerPlayer sp) {
+            return sp.gameMode.getGameModeForPlayer().getId();
+        }
+        return 0;
+    }
+
+    @HostAccess.Export
+    public void setGameMode(int mode) {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.setGameMode(GameType.byId(mode));
+        }
+    }
+
+    @HostAccess.Export
+    public int getHotbarIndex() {
+        return root.player.getInventory().selected;
+    }
+
+    @HostAccess.Export
+    public void setHotbarIndex(int index) {
+        root.player.getInventory().selected = index;
+    }
+
+    @HostAccess.Export
+    public int getXpLevel() {
+        if (root.player instanceof ServerPlayer sp) {
+            return sp.experienceLevel;
+        }
+        return 0;
+    }
+
+    @HostAccess.Export
+    public void setXpLevel(int lvl) {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.setExperienceLevels(lvl);
+        }
+    }
+
+    @HostAccess.Export
+    public void addXp(int amount) {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.giveExperiencePoints(amount);
+        }
+    }
+
+    @HostAccess.Export
+    public void removeXp(int amount) {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.giveExperiencePoints(-amount);
+        }
+    }
+
+    @HostAccess.Export
+    public void setXp(int amount) {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.setExperiencePoints(amount);
+        }
+    }
+
+    @HostAccess.Export
+    public void setSpawnPoint(double x, double y, double z) {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.setRespawnPosition(sp.level().dimension(), new BlockPos((int)x, (int)y, (int)z), sp.getYRot(), true, false);
+        }
+    }
+
+    @HostAccess.Export
     public boolean hasItem(String itemId, int count) {
         int found = 0;
         for (ItemStack stack : root.player.getInventory().items) {
@@ -128,6 +204,54 @@ public class PlayerAPI {
     public void cameraReset(Player target) {
         if (target instanceof ServerPlayer serverPlayer) {
             IScriptNetwork.sendToPlayer(new ClientEffectPacket(ClientEffectPacket.Type.CAMERA_RESET, new net.minecraft.nbt.CompoundTag()), serverPlayer);
+        }
+    }
+
+    @HostAccess.Export
+    public void sendTitle(String text) {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.connection.send(new ClientboundSetTitleTextPacket(Component.literal(text)));
+        }
+    }
+
+    @HostAccess.Export
+    public void sendSubtitle(String text) {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.connection.send(new ClientboundSetSubtitleTextPacket(Component.literal(text)));
+        }
+    }
+
+    @HostAccess.Export
+    public void sendActionBar(String text) {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.connection.send(new ClientboundSetActionBarTextPacket(Component.literal(text)));
+        }
+    }
+
+    @HostAccess.Export
+    public void playSound(String soundId, double x, double y, double z) {
+        try {
+            ResourceLocation id = new ResourceLocation(soundId);
+            SoundEvent sound = ForgeRegistries.SOUND_EVENTS.getValue(id);
+            if (sound != null && root.player instanceof ServerPlayer sp) {
+                sp.playNotifySound(sound, SoundSource.BLOCKS, 1.0f, 1.0f);
+            }
+        } catch (Exception e) {
+            IScriptMod.LOGGER.error("Failed to play sound: {}", e.getMessage());
+        }
+    }
+
+    @HostAccess.Export
+    public void stopSound(String soundId) {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.connection.send(new ClientboundStopSoundPacket(new ResourceLocation(soundId), null));
+        }
+    }
+
+    @HostAccess.Export
+    public void stopAllSound() {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.connection.send(new ClientboundStopSoundPacket(null, null));
         }
     }
 
@@ -169,5 +293,28 @@ public class PlayerAPI {
     @HostAccess.Export
     public int getReputation() {
         return root.player.getCapability(ModCapabilities.PLAYER_DATA).map(com.iscript.imson.capability.PlayerData::getReputation).orElse(0);
+    }
+
+    @HostAccess.Export
+    public boolean isPlayer() {
+        return true;
+    }
+
+    @HostAccess.Export
+    public ItemStack getMainItem() {
+        return root.player.getMainHandItem();
+    }
+
+    @HostAccess.Export
+    public void setMainItem(String itemId) {
+        try {
+            ResourceLocation id = new ResourceLocation(itemId);
+            Item item = ForgeRegistries.ITEMS.getValue(id);
+            if (item != null) {
+                root.player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(item));
+            }
+        } catch (Exception e) {
+            IScriptMod.LOGGER.error("Failed to set main item: {}", e.getMessage());
+        }
     }
 }

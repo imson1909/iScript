@@ -22,6 +22,7 @@ public class SubScreenLifecycle {
     private final CanvasManager canvas = new CanvasManager();
     private final ModalManager modals = new ModalManager();
     private final EditorManager editors = new EditorManager();
+    private final FormDialogManager forms = new FormDialogManager();
 
     public SubScreenLifecycle(DashboardScreen.SubScreen screen) {
         this.screen = screen;
@@ -40,6 +41,7 @@ public class SubScreenLifecycle {
     public CanvasManager canvas() { return canvas; }
     public ModalManager modals() { return modals; }
     public EditorManager editors() { return editors; }
+    public FormDialogManager forms() { return forms; }
 
     public void init() {
         search.createIfRequested();
@@ -51,6 +53,7 @@ public class SubScreenLifecycle {
         search.captureAndRemove();
         editors.captureAndRemove();
         modals.captureAndRemove();
+        forms.closeAll();
         canvas.saveCurrent();
     }
 
@@ -247,22 +250,30 @@ public class SubScreenLifecycle {
 
         public void captureAndRemove() {
             for (ModalDef d : defs.values()) {
-                boolean open = d.isOpen != null && Boolean.TRUE.equals(d.isOpen.get());
-                state.modalOpenFlags.put(d.id, open);
-                if (d.onDestroy != null) d.onDestroy.run();
+                if (d.isOpen != null && Boolean.TRUE.equals(d.isOpen.get())) {
+                    if (d.setOpen != null) d.setOpen.accept(false);
+                    if (d.onDestroy != null) d.onDestroy.run();
+                }
+                state.modalOpenFlags.put(d.id, false);
             }
         }
 
         public void open(String id) {
-            state.modalOpenFlags.put(id, true);
             ModalDef d = defs.get(id);
-            if (d != null && d.setOpen != null) d.setOpen.accept(true);
+            if (d == null) return;
+            boolean already = state.modalOpenFlags.getOrDefault(id, false);
+            state.modalOpenFlags.put(id, true);
+            if (d.setOpen != null) d.setOpen.accept(true);
+            if (!already && d.onCreate != null) d.onCreate.run();
         }
 
         public void close(String id) {
-            state.modalOpenFlags.put(id, false);
             ModalDef d = defs.get(id);
-            if (d != null && d.setOpen != null) d.setOpen.accept(false);
+            if (d == null) return;
+            boolean wasOpen = state.modalOpenFlags.getOrDefault(id, false);
+            state.modalOpenFlags.put(id, false);
+            if (d.setOpen != null) d.setOpen.accept(false);
+            if (wasOpen && d.onDestroy != null) d.onDestroy.run();
         }
 
         public boolean isOpen(String id) {
@@ -338,5 +349,161 @@ public class SubScreenLifecycle {
         public EditBox box(String id) { return boxes.get(id); }
         public MultiLineEditBox multi(String id) { return multiBoxes.get(id); }
         public boolean has(String id) { return boxes.containsKey(id) || multiBoxes.containsKey(id); }
+    }
+
+    public class FormDialogManager {
+        public static class Field {
+            public String id;
+            public Component label;
+            public String initial = "";
+            public int maxLength = 64;
+            public boolean numeric = false;
+            public int width = 200;
+            public int height = 20;
+        }
+
+        public static class Form {
+            public String id;
+            public Component title;
+            public List<Field> fields = new ArrayList<>();
+            public Consumer<Map<String, String>> onConfirm;
+            public Runnable onCancel;
+        }
+
+        private final Map<String, Form> forms = new HashMap<>();
+        private String openFormId = null;
+        private final Map<String, EditBox> boxes = new HashMap<>();
+
+        public void register(Form form) { forms.put(form.id, form); }
+
+        public void open(String id) {
+            closeAll();
+            openFormId = id;
+            Form f = forms.get(id);
+            if (f == null) return;
+            int cx = screen.parent.width / 2;
+            int cy = screen.parent.height / 2 - 40;
+            int fy = cy + 24;
+            for (Field field : f.fields) {
+                EditBox box = new EditBox(screen.getMinecraft().font, cx - field.width / 2, fy, field.width, field.height, field.label);
+                box.setValue(field.initial);
+                box.setMaxLength(field.maxLength);
+                if (field.numeric) box.setFilter(s -> s.matches("-?\\d*"));
+                screen.parent.addWidget(box);
+                boxes.put(field.id, box);
+                fy += 26;
+            }
+        }
+
+        public void close(String id) {
+            if (!id.equals(openFormId)) return;
+            Form f = forms.get(id);
+            if (f != null) {
+                for (Field field : f.fields) {
+                    EditBox box = boxes.remove(field.id);
+                    if (box != null) screen.parent.removeEditorWidget(box);
+                }
+            }
+            openFormId = null;
+        }
+
+        public void closeAll() { if (openFormId != null) close(openFormId); }
+
+        public boolean isOpen() { return openFormId != null; }
+        public String openId() { return openFormId; }
+
+        public void render(net.minecraft.client.gui.GuiGraphics g, net.minecraft.client.gui.Font font, int mx, int my) {
+            if (openFormId == null) return;
+            Form f = forms.get(openFormId);
+            if (f == null) return;
+            int cx = screen.parent.width / 2;
+            int cy = screen.parent.height / 2 - 40;
+            int fh = 60 + f.fields.size() * 26;
+            int fx = cx - 110;
+            int fy = cy;
+            g.fill(fx - 4, fy - 4, fx + 224, fy + fh + 4, Theme.alpha(Theme.BG_INNER, 0.8f));
+            g.fill(fx, fy, fx + 220, fy + fh, Theme.BG_INNER);
+            g.renderOutline(fx, fy, 220, fh, Theme.ACCENT);
+            g.drawCenteredString(font, f.title.getString(), cx, fy + 6, Theme.ACCENT);
+            int by = fy + 28;
+            for (Field field : f.fields) {
+                EditBox box = boxes.get(field.id);
+                if (box != null) { box.setX(cx - field.width / 2); box.setY(by); }
+                by += 26;
+            }
+            boolean okH = mx >= cx - 50 && mx <= cx - 2 && my >= by + 4 && my <= by + 26;
+            g.fill(cx - 50, by + 4, cx - 2, by + 26, okH ? Theme.BG_HOVER : Theme.BG_INNER);
+            g.renderOutline(cx - 50, by + 4, 48, 22, Theme.BORDER);
+            g.drawCenteredString(font, I18n.s("iscript.button.confirm"), cx - 26, by + 9, okH ? Theme.ACCENT : 0xFF44AA44);
+            boolean cancelH = mx >= cx + 2 && mx <= cx + 50 && my >= by + 4 && my <= by + 26;
+            g.fill(cx + 2, by + 4, cx + 50, by + 26, cancelH ? Theme.BG_HOVER : Theme.BG_INNER);
+            g.renderOutline(cx + 2, by + 4, 48, 22, Theme.BORDER);
+            g.drawCenteredString(font, I18n.s("iscript.button.cancel"), cx + 26, by + 9, cancelH ? Theme.ERROR : 0xFFAA4444);
+        }
+
+        public boolean mouseClicked(double mx, double my, int button) {
+            if (openFormId == null) return false;
+            Form f = forms.get(openFormId);
+            if (f == null) return false;
+            int cx = screen.parent.width / 2;
+            int cy = screen.parent.height / 2 - 40;
+            int by = cy + 28 + f.fields.size() * 26;
+            if (mx >= cx - 50 && mx <= cx - 2 && my >= by + 4 && my <= by + 26) {
+                Map<String, String> values = new HashMap<>();
+                for (Field field : f.fields) {
+                    EditBox box = boxes.get(field.id);
+                    values.put(field.id, box != null ? box.getValue().trim() : "");
+                }
+                close(openFormId);
+                if (f.onConfirm != null) f.onConfirm.accept(values);
+                return true;
+            }
+            if (mx >= cx + 2 && mx <= cx + 50 && my >= by + 4 && my <= by + 26) {
+                close(openFormId);
+                if (f.onCancel != null) f.onCancel.run();
+                return true;
+            }
+            for (Field field : f.fields) {
+                EditBox box = boxes.get(field.id);
+                if (box != null && mx >= box.getX() && mx <= box.getX() + box.getWidth() && my >= box.getY() && my <= box.getY() + box.getHeight()) {
+                    screen.parent.setFocusedWidget(box);
+                    return box.mouseClicked(mx, my, button);
+                }
+            }
+            return true;
+        }
+
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            if (openFormId == null) return false;
+            if (keyCode == 257 || keyCode == 335) {
+                Form f = forms.get(openFormId);
+                Map<String, String> values = new HashMap<>();
+                for (Field field : f.fields) {
+                    EditBox box = boxes.get(field.id);
+                    values.put(field.id, box != null ? box.getValue().trim() : "");
+                }
+                close(openFormId);
+                if (f.onConfirm != null) f.onConfirm.accept(values);
+                return true;
+            }
+            if (keyCode == 256) {
+                Form f = forms.get(openFormId);
+                close(openFormId);
+                if (f.onCancel != null) f.onCancel.run();
+                return true;
+            }
+            for (EditBox box : boxes.values()) {
+                if (box.isFocused()) return box.keyPressed(keyCode, scanCode, modifiers);
+            }
+            return true;
+        }
+
+        public boolean charTyped(char codePoint, int modifiers) {
+            if (openFormId == null) return false;
+            for (EditBox box : boxes.values()) {
+                if (box.isFocused()) return box.charTyped(codePoint, modifiers);
+            }
+            return true;
+        }
     }
 }

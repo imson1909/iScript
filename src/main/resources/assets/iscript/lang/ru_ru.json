@@ -553,7 +553,7 @@
   "iscript.info.stop_reached": "Достигнут узел остановки",
   "iscript.trigger.deleted": "Триггер %s удалён",
   "iscript.trigger.saved": "Триггер %s сохранён",
-  "iscript.state.mode.global": "Глобальные",
+  "iscript.state.mode.global": "Глобальное",
   "iscript.state.mode.player": "Игрок",
   "iscript.state.mode.entity": "Сущность",
   "iscript.state.target.placeholder": "Цель...",
@@ -578,5 +578,12 @@
   "iscript.dialog.node.type.jump": "Переход",
   "iscript.dialog.node.default.jump_text": "",
   "iscript.dialog.node.target_dialog": "Целевой диалог:",
-  "iscript.dialog.node.follow_jump": "Перейти к диалогу"
+  "iscript.dialog.node.follow_jump": "Перейти к диалогу",
+  "iscript.list.new": "+ Новый",
+  "iscript.dialog.rename": "Переименовать",
+  "iscript.dialog.new_name": "Новое название",
+  "iscript.button.rename": "Переименовать",
+  "iscript.button.create": "Создать",
+  "iscript.dialog.placeholder.name": "Название...",
+  "iscript.button.cancel": "Отмена"
 }

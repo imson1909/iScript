@@ -578,5 +578,12 @@
     "iscript.dialog.node.type.jump": "Jump",
     "iscript.dialog.node.default.jump_text": "",
     "iscript.dialog.node.target_dialog": "Target Dialog:",
-    "iscript.dialog.node.follow_jump": "Follow Jump"
+    "iscript.dialog.node.follow_jump": "Follow Jump",
+    "iscript.list.new": "+ New",
+    "iscript.dialog.rename": "Rename",
+    "iscript.dialog.new_name": "New Name",
+    "iscript.button.rename": "Rename",
+    "iscript.button.create": "Create",
+    "iscript.dialog.placeholder.name": "Name...",
+    "iscript.button.cancel": "Cancel"
 }

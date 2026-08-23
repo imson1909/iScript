@@ -1,15 +1,24 @@
 package com.iscript.imson.script.api;
 
 import com.iscript.imson.IScriptMod;
+import com.iscript.imson.data.DataAccess;
+import com.iscript.imson.data.npc.NPCData;
+import com.iscript.imson.entity.IScriptNPCEntity;
+import com.iscript.imson.registry.ModEntities;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.protocol.game.ClientboundStopSoundPacket;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.level.block.Block;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.graalvm.polyglot.HostAccess;
+
+import java.util.UUID;
 
 public class WorldAPI {
     private final ScriptAPI root;
@@ -44,6 +53,29 @@ public class WorldAPI {
     }
 
     @HostAccess.Export
+    public Entity spawnNpc(String npcId, double x, double y, double z) {
+        try {
+            NPCData data = DataAccess.npc(npcId);
+            if (data == null) {
+                data = new NPCData();
+                data.setName(npcId);
+            }
+            var npc = ModEntities.ISCRIPT_NPC.get().create(root.level);
+            if (npc != null) {
+                npc.moveTo(x, y + 0.1, z, 0, 0);
+                npc.setNPCData(data);
+                npc.setOwner(root.player);
+                npc.finalizeSpawn(root.level, root.level.getCurrentDifficultyAt(npc.blockPosition()), MobSpawnType.COMMAND, null, null);
+                root.level.addFreshEntity(npc);
+                return npc;
+            }
+        } catch (Exception e) {
+            IScriptMod.LOGGER.error("Failed to spawn NPC: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    @HostAccess.Export
     public void setBlock(String blockId, double x, double y, double z) {
         try {
             ResourceLocation id = new ResourceLocation(blockId);
@@ -75,6 +107,20 @@ public class WorldAPI {
     }
 
     @HostAccess.Export
+    public void stopSound(String soundId) {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.connection.send(new ClientboundStopSoundPacket(new ResourceLocation(soundId), null));
+        }
+    }
+
+    @HostAccess.Export
+    public void stopAllSound() {
+        if (root.player instanceof ServerPlayer sp) {
+            sp.connection.send(new ClientboundStopSoundPacket(null, null));
+        }
+    }
+
+    @HostAccess.Export
     public void particle(String particleId, double x, double y, double z) {
         try {
             ResourceLocation id = new ResourceLocation(particleId);
@@ -95,5 +141,19 @@ public class WorldAPI {
         if (entity instanceof com.iscript.imson.entity.IScriptNPCEntity npc) {
             npc.teleportTo(x, y, z);
         }
+    }
+
+    @HostAccess.Export
+    public Entity getEntityUUID(String uuid) {
+        try {
+            UUID id = UUID.fromString(uuid);
+            for (var sl : root.level.getServer().getAllLevels()) {
+                Entity e = sl.getEntity(id);
+                if (e != null) return e;
+            }
+        } catch (Exception e) {
+            IScriptMod.LOGGER.error("Invalid UUID: {}", e.getMessage());
+        }
+        return null;
     }
 }

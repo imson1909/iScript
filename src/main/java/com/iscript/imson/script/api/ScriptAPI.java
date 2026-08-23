@@ -5,7 +5,9 @@ import com.iscript.imson.data.ModData;
 import com.iscript.imson.script.ScriptExecutionService;
 import com.iscript.imson.script.ScriptTaskScheduler;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 import org.graalvm.polyglot.HostAccess;
 
 public class ScriptAPI {
@@ -33,6 +35,12 @@ public class ScriptAPI {
     public final ScriptControlAPI scriptControl;
     @HostAccess.Export
     public final States states;
+    @HostAccess.Export
+    public final ServerAPI server;
+    @HostAccess.Export
+    public final FileAPI file;
+    @HostAccess.Export
+    public final SchematicAPI schematic;
 
     public ScriptAPI(Player player, ServerLevel level, ScriptExecutionService exec, ScriptTaskScheduler scheduler, String scriptId) {
         this.player = player;
@@ -49,6 +57,9 @@ public class ScriptAPI {
         this.effect = new EffectAPI(this);
         this.scriptControl = new ScriptControlAPI(this);
         this.states = new States();
+        this.server = new ServerAPI(this);
+        this.file = new FileAPI(this);
+        this.schematic = new SchematicAPI(this);
     }
 
     @HostAccess.Export
@@ -364,6 +375,124 @@ public class ScriptAPI {
     @HostAccess.Export
     public java.util.List<String> getScriptIds() {
         return scriptControl.getScriptIds();
+    }
+
+    @HostAccess.Export
+    public EntityAPI entity(Entity entity) {
+        return new EntityAPI(entity);
+    }
+
+    @HostAccess.Export
+    public NpcAPI npc(Entity entity) {
+        if (entity instanceof com.iscript.imson.entity.IScriptNPCEntity npc) {
+            return new NpcAPI(npc);
+        }
+        return null;
+    }
+
+    @HostAccess.Export
+    public ItemAPI item(ItemStack stack) {
+        return new ItemAPI(stack);
+    }
+
+    @HostAccess.Export
+    public InventoryAPI inventory(Player player) {
+        return new InventoryAPI(player);
+    }
+
+    @HostAccess.Export
+    public int getGameMode() {
+        return playerApi.getGameMode();
+    }
+
+    @HostAccess.Export
+    public void setGameMode(int mode) {
+        playerApi.setGameMode(mode);
+    }
+
+    @HostAccess.Export
+    public int getHotbarIndex() {
+        return playerApi.getHotbarIndex();
+    }
+
+    @HostAccess.Export
+    public void setHotbarIndex(int index) {
+        playerApi.setHotbarIndex(index);
+    }
+
+    @HostAccess.Export
+    public int getXpLevel() {
+        return playerApi.getXpLevel();
+    }
+
+    @HostAccess.Export
+    public void setXpLevel(int lvl) {
+        playerApi.setXpLevel(lvl);
+    }
+
+    @HostAccess.Export
+    public void addXp(int amount) {
+        playerApi.addXp(amount);
+    }
+
+    @HostAccess.Export
+    public void removeXp(int amount) {
+        playerApi.removeXp(amount);
+    }
+
+    @HostAccess.Export
+    public void setXp(int amount) {
+        playerApi.setXp(amount);
+    }
+
+    @HostAccess.Export
+    public void setSpawnPoint(double x, double y, double z) {
+        playerApi.setSpawnPoint(x, y, z);
+    }
+
+    @HostAccess.Export
+    public void sendTitle(String text) {
+        playerApi.sendTitle(text);
+    }
+
+    @HostAccess.Export
+    public void sendSubtitle(String text) {
+        playerApi.sendSubtitle(text);
+    }
+
+    @HostAccess.Export
+    public void sendActionBar(String text) {
+        playerApi.sendActionBar(text);
+    }
+
+    @HostAccess.Export
+    public void stopSound(String soundId) {
+        playerApi.stopSound(soundId);
+    }
+
+    @HostAccess.Export
+    public void stopAllSound() {
+        playerApi.stopAllSound();
+    }
+
+    @HostAccess.Export
+    public boolean isPlayer() {
+        return playerApi.isPlayer();
+    }
+
+    @HostAccess.Export
+    public ItemStack getMainItem() {
+        return playerApi.getMainItem();
+    }
+
+    @HostAccess.Export
+    public void setMainItem(String itemId) {
+        playerApi.setMainItem(itemId);
+    }
+
+    @HostAccess.Export
+    public InventoryAPI getInventory() {
+        return new InventoryAPI(player);
     }
 
     public class States {

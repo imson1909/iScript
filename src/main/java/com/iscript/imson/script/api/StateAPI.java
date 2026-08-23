@@ -33,6 +33,21 @@ public class StateAPI {
     }
 
     @HostAccess.Export
+    public boolean getBool(String key) {
+        return Boolean.parseBoolean(GlobalStates.get().getString(key));
+    }
+
+    @HostAccess.Export
+    public int getInt(String key) {
+        return (int) GlobalStates.get().getNumber(key);
+    }
+
+    @HostAccess.Export
+    public double getDouble(String key) {
+        return GlobalStates.get().getNumber(key);
+    }
+
+    @HostAccess.Export
     public boolean has(String key) {
         return GlobalStates.get().has(key);
     }
@@ -54,5 +69,35 @@ public class StateAPI {
         GlobalStates.get().remove(key);
         GlobalStates.save();
         ModData.setDirty();
+    }
+
+    @HostAccess.Export
+    public String toString(String key) {
+        return getString(key);
+    }
+
+    @HostAccess.Export
+    public double toNumber(String key) {
+        return getNumber(key);
+    }
+
+    @HostAccess.Export
+    public boolean toBool(String key) {
+        return getBool(key);
+    }
+
+    @HostAccess.Export
+    public int toInt(String key) {
+        return getInt(key);
+    }
+
+    @HostAccess.Export
+    public double toDouble(String key) {
+        return getDouble(key);
+    }
+
+    @HostAccess.Export
+    public int length(String key) {
+        return getString(key).length();
     }
 }
