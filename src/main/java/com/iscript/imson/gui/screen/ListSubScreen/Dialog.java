@@ -322,4 +322,10 @@ public class Dialog extends GraphSubScreen {
         commandStack.execute(new com.iscript.imson.gui.undo.NodeCommands.AddNodeCommand(currentGraph, node));
         save();
     }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (life.keyPressed(keyCode, scanCode, modifiers)) return true;
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
 }

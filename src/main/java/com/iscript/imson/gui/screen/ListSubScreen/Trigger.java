@@ -11,6 +11,7 @@ import com.iscript.imson.gui.screen.DashboardScreen;
 import com.iscript.imson.gui.screen.I18n;
 import com.iscript.imson.gui.theme.Theme;
 import com.iscript.imson.gui.widget.ContextMenu;
+import com.iscript.imson.gui.widget.DropdownMenu;
 import com.iscript.imson.network.IScriptNetwork;
 import com.iscript.imson.network.packet.ServerCommandPacket;
 import com.iscript.imson.script.ScriptGraphManager;
@@ -21,7 +22,9 @@ import net.minecraft.nbt.CompoundTag;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class Trigger extends ListSubScreen {
     private static final int RIGHT_PANEL_WIDTH = 220;
@@ -38,8 +41,7 @@ public class Trigger extends ListSubScreen {
     private int typePickerScroll = 0;
     private boolean typePickerDragging = false;
     private List<String> scriptIds = new ArrayList<>();
-    private boolean scriptDropdownOpen = false;
-    private int scriptDropdownScroll = 0;
+    private final DropdownMenu scriptDropdown = new DropdownMenu();
     private int lastScriptCacheSize = -1;
 
     public Trigger(DashboardScreen parent) {
@@ -60,8 +62,7 @@ public class Trigger extends ListSubScreen {
         super.init();
         typePickerOpen = false;
         typePickerDragging = false;
-        scriptDropdownOpen = false;
-        scriptDropdownScroll = 0;
+        scriptDropdown.close();
         refreshScriptIds();
         if (scriptIds.isEmpty()) {
             IScriptNetwork.sendToServer(new ServerCommandPacket(ServerCommandPacket.Type.REQUEST_SCRIPT_GRAPHS, new CompoundTag()));
@@ -76,14 +77,19 @@ public class Trigger extends ListSubScreen {
         boolean anyFocused = (lifecycle.editors().box("id") != null && lifecycle.editors().box("id").isFocused()) ||
                 (lifecycle.editors().box("function") != null && lifecycle.editors().box("function").isFocused()) ||
                 (lifecycle.search().box() != null && lifecycle.search().box().isFocused());
-        if (lifecycle.save().isDirty() && !anyFocused && !typePickerOpen && !scriptDropdownOpen) doSave();
-        if (anyFocused) lifecycle.save().markDirty();
+        if (lifecycle.save().isDirty() && !anyFocused && !typePickerOpen && !scriptDropdown.isOpen()) doSave();
+        if (anyFocused || scriptDropdown.isOpen()) lifecycle.save().markDirty();
         if (lifecycle.search().box() == null && this.minecraft != null) lifecycle.search().recreateIfMissing();
         var cache = ScriptGraphManager.getClientCache();
         if (cache.size() != lastScriptCacheSize) {
             lastScriptCacheSize = cache.size();
             refreshScriptIds();
         }
+        boolean modalOpen = lifecycle.modals().isOpen("confirm") || lifecycle.modals().isOpen("prompt") || typePickerOpen;
+        EditBox idBox = lifecycle.editors().box("id");
+        EditBox funcBox = lifecycle.editors().box("function");
+        if (idBox != null) idBox.setVisible(!modalOpen);
+        if (funcBox != null) funcBox.setVisible(!modalOpen);
     }
 
     private void refreshScriptIds() {
@@ -270,7 +276,6 @@ public class Trigger extends ListSubScreen {
             idBox.setX(leftX);
             idBox.setY(leftY + 12);
             idBox.setWidth(leftW);
-            idBox.setVisible(true);
         }
 
         String typeName = selected.getType().getDisplayName();
@@ -287,31 +292,14 @@ public class Trigger extends ListSubScreen {
         g.renderOutline(scriptDropdownX, scriptDropdownY, scriptDropdownW, SCRIPT_DROPDOWN_H, Theme.BORDER);
         String selectedScript = selected.getScriptId().isEmpty() ? I18n.s("iscript.trigger.editor.select_script") : selected.getScriptId();
         g.drawString(font, selectedScript, scriptDropdownX + 4, scriptDropdownY + 6, Theme.TEXT);
-        g.drawString(font, scriptDropdownOpen ? "\u25B2" : "\u25BC", scriptDropdownX + scriptDropdownW - 12, scriptDropdownY + 6, Theme.TEXT_DIM);
+        g.drawString(font, "\u25BC", scriptDropdownX + scriptDropdownW - 12, scriptDropdownY + 6, Theme.TEXT_DIM);
 
-        if (scriptDropdownOpen) {
-            int listDropY = scriptDropdownY + SCRIPT_DROPDOWN_H;
-            int visibleCount = Math.min(scriptIds.size(), SCRIPT_DROPDOWN_MAX_VISIBLE);
-            int listDropH = visibleCount * SCRIPT_DROPDOWN_H;
-            g.fill(scriptDropdownX, listDropY, scriptDropdownX + scriptDropdownW, listDropY + listDropH, Theme.BG_INNER);
-            g.renderOutline(scriptDropdownX, listDropY, scriptDropdownW, listDropH, Theme.BORDER);
-            for (int i = 0; i < visibleCount; i++) {
-                int idx = i + scriptDropdownScroll;
-                if (idx >= scriptIds.size()) break;
-                int rowY = listDropY + i * SCRIPT_DROPDOWN_H;
-                boolean hovered = mx >= scriptDropdownX && mx <= scriptDropdownX + scriptDropdownW && my >= rowY && my <= rowY + SCRIPT_DROPDOWN_H;
-                boolean isSel = selected.getScriptId().equals(scriptIds.get(idx));
-                int bg = isSel ? 0xFF334455 : (hovered ? Theme.BG_HOVER : Theme.BG_INNER);
-                g.fill(scriptDropdownX + 1, rowY, scriptDropdownX + scriptDropdownW - 1, rowY + SCRIPT_DROPDOWN_H, bg);
-                g.drawString(font, scriptIds.get(idx), scriptDropdownX + 4, rowY + 6, isSel ? Theme.ACCENT : Theme.TEXT);
-            }
-        }
+
 
         if (functionNameBox != null) {
             functionNameBox.setX(leftX + leftW / 2 + 4);
             functionNameBox.setY(leftY + 84);
             functionNameBox.setWidth(leftW / 2 - 4);
-            functionNameBox.setVisible(true);
         }
 
         boolean enHov = mx >= leftX && mx <= leftX + 60 && my >= leftY + 112 && my <= leftY + 132;
@@ -322,6 +310,10 @@ public class Trigger extends ListSubScreen {
         g.renderOutline(leftX, leftY + 112, 60, 20, Theme.BORDER);
         g.drawCenteredString(font, enText, leftX + 30, leftY + 117, enCol);
 
+        if (!typePickerOpen) {
+            scriptDropdown.render(g, font, mx, my);
+        }
+
         if (lifecycle.save().isDirty()) {
             g.drawString(font, "*", leftX + leftW - 10, leftY, Theme.ERROR);
         }
@@ -330,6 +322,11 @@ public class Trigger extends ListSubScreen {
     @Override
     protected boolean handleEditorClick(double mx, double my, int button, int leftX, int leftY, int leftW, int leftH) {
         if (button != 0) return false;
+
+        if (scriptDropdown.isOpen()) {
+            scriptDropdown.mouseClicked(mx, my, button);
+            return true;
+        }
 
         if (mx >= leftX && mx <= leftX + leftW && my >= leftY + 48 && my <= leftY + 66) {
             openTypePicker();
@@ -340,26 +337,14 @@ public class Trigger extends ListSubScreen {
         int scriptDropdownY = leftY + 84;
         int scriptDropdownW = leftW / 2 - 4;
 
-        if (scriptDropdownOpen) {
-            int listDropY = scriptDropdownY + SCRIPT_DROPDOWN_H;
-            int visibleCount = Math.min(scriptIds.size(), SCRIPT_DROPDOWN_MAX_VISIBLE);
-            for (int i = 0; i < visibleCount; i++) {
-                int idx = i + scriptDropdownScroll;
-                if (idx >= scriptIds.size()) break;
-                int rowY = listDropY + i * SCRIPT_DROPDOWN_H;
-                if (mx >= scriptDropdownX && mx <= scriptDropdownX + scriptDropdownW && my >= rowY && my <= rowY + SCRIPT_DROPDOWN_H) {
-                    selected.setScriptId(scriptIds.get(idx));
-                    lifecycle.save().markDirty();
-                    scriptDropdownOpen = false;
-                    return true;
-                }
-            }
-            scriptDropdownOpen = false;
-            return true;
-        }
-
         if (mx >= scriptDropdownX && mx <= scriptDropdownX + scriptDropdownW && my >= scriptDropdownY && my <= scriptDropdownY + SCRIPT_DROPDOWN_H) {
-            scriptDropdownOpen = !scriptDropdownOpen;
+            scriptDropdown.setItems(scriptIds);
+            scriptDropdown.setOnSelect(id -> {
+                selected.setScriptId(id);
+                lifecycle.save().markDirty();
+            });
+            scriptDropdown.open(scriptDropdownX, scriptDropdownY + SCRIPT_DROPDOWN_H, scriptDropdownW, selected.getScriptId());
+            closeTypePicker();
             return true;
         }
 
@@ -384,26 +369,18 @@ public class Trigger extends ListSubScreen {
 
     @Override
     protected boolean handleEditorScroll(double mx, double my, double delta, int leftX, int leftY, int leftW, int leftH) {
-        if (scriptDropdownOpen) {
-            int scriptDropdownX = leftX;
-            int scriptDropdownY = leftY + 84;
-            int scriptDropdownW = leftW / 2 - 4;
-            int listDropY = scriptDropdownY + SCRIPT_DROPDOWN_H;
-            int listDropH = Math.min(scriptIds.size(), SCRIPT_DROPDOWN_MAX_VISIBLE) * SCRIPT_DROPDOWN_H;
-            if (mx >= scriptDropdownX && mx <= scriptDropdownX + scriptDropdownW && my >= listDropY && my <= listDropY + listDropH) {
-                int maxScroll = Math.max(0, scriptIds.size() - SCRIPT_DROPDOWN_MAX_VISIBLE);
-                if (delta > 0) scriptDropdownScroll = Math.max(0, scriptDropdownScroll - 1);
-                else scriptDropdownScroll = Math.min(scriptDropdownScroll + 1, maxScroll);
-                return true;
-            }
+        if (scriptDropdown.isOpen()) {
+            scriptDropdown.mouseScrolled(delta);
+            return true;
         }
         return false;
     }
 
     private void openTypePicker() {
+        scriptDropdown.close();
         typePickerOpen = true;
         typePickerDragging = false;
-        if (selected != null) typePickerScroll = Math.max(0, selected.getType().ordinal() - 5);
+        typePickerScroll = 0;
     }
 
     private void closeTypePicker() {
@@ -411,16 +388,30 @@ public class Trigger extends ListSubScreen {
         typePickerDragging = false;
     }
 
+
+    private int getPickerHeight() {
+        TriggerType[] types = TriggerType.values();
+        int headerH = 28;
+        int closeBtnH = 24;
+        int neededListH = types.length * TYPE_PICKER_ROW_H + 8;
+        int neededH = headerH + closeBtnH + 16 + neededListH;
+        int maxH = this.parent.height - DashboardScreen.TOPBAR_H - 40;
+        return Math.max(180, Math.min(neededH, maxH));
+    }
+
+    private int getPickerY(int pickerH) {
+        return DashboardScreen.TOPBAR_H + 20;
+    }
+
     @Override
     protected boolean hasCustomModals() { return typePickerOpen; }
-
     @Override
     protected void renderCustomModals(GuiGraphics g, int mx, int my, float pt, int x, int y, int w, int h) {
         if (!typePickerOpen) return;
-        int pickerH = Math.min(460, this.parent.height - DashboardScreen.TOPBAR_H - 20);
+        int pickerH = getPickerHeight();
         int pickerW = TYPE_PICKER_W;
         int px = x + (w - pickerW) / 2;
-        int py = y + (h - pickerH) / 2;
+        int py = getPickerY(pickerH);
 
         g.fill(x, y, x + w, y + h, 0xDD000000);
         g.fill(px - 2, py - 2, px + pickerW + 2, py + pickerH + 2, Theme.BG_INNER);
@@ -476,10 +467,14 @@ public class Trigger extends ListSubScreen {
         int y = DashboardScreen.TOPBAR_H;
         int w = this.parent.width - DashboardScreen.SIDEBAR_W;
         int h = this.parent.height - DashboardScreen.TOPBAR_H;
-        int pickerH = Math.min(460, h - 20);
+        int pickerH = getPickerHeight();
         int pickerW = TYPE_PICKER_W;
         int px = x + (w - pickerW) / 2;
-        int py = y + (h - pickerH) / 2;
+        int py = getPickerY(pickerH);
+        if (mx < px || mx > px + pickerW || my < py || my > py + pickerH) {
+            closeTypePicker();
+            return false;
+        }
         int headerH = 28;
         int closeBtnH = 24;
         int listTop = py + headerH;
@@ -541,7 +536,7 @@ public class Trigger extends ListSubScreen {
         if (!typePickerOpen) return false;
         TriggerType[] types = TriggerType.values();
         int h = this.parent.height - DashboardScreen.TOPBAR_H;
-        int pickerH = Math.min(460, h - 20);
+        int pickerH = getPickerHeight();
         int headerH = 28;
         int closeBtnH = 24;
         int listH = pickerH - headerH - closeBtnH - 8;
@@ -565,13 +560,13 @@ public class Trigger extends ListSubScreen {
     public boolean mouseDragged(double mx, double my, int button, double dragX, double dragY) {
         if (typePickerDragging && typePickerOpen) {
             int h = this.parent.height - DashboardScreen.TOPBAR_H;
-            int pickerH = Math.min(460, h - 20);
+            int pickerH = getPickerHeight();
             int pickerW = TYPE_PICKER_W;
             int x = DashboardScreen.SIDEBAR_W;
             int y = DashboardScreen.TOPBAR_H;
             int w = this.parent.width - DashboardScreen.SIDEBAR_W;
             int px = x + (w - pickerW) / 2;
-            int py = y + (h - pickerH) / 2;
+            int py = getPickerY(pickerH);
             int headerH = 28;
             int closeBtnH = 24;
             int listTop = py + headerH;
@@ -585,6 +580,16 @@ public class Trigger extends ListSubScreen {
             return true;
         }
         return super.mouseDragged(mx, my, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (scriptDropdown.isOpen() && keyCode == 256) {
+            scriptDropdown.close();
+            return true;
+        }
+        if (lifecycle.keyPressed(keyCode, scanCode, modifiers)) return true;
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     public void receiveTriggers(CompoundTag data) {

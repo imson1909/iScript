@@ -63,7 +63,12 @@ public class ScriptAPI {
     }
 
     @HostAccess.Export
-    public Player getPlayer() {
+    public PlayerAPI getPlayer() {
+        return playerApi;
+    }
+
+    @HostAccess.Export
+    public Player getNativePlayer() {
         return player;
     }
 

@@ -151,6 +151,12 @@ public class Region extends ListSubScreen {
     @Override
     protected void doSave() {}
 
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (lifecycle.keyPressed(keyCode, scanCode, modifiers)) return true;
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
     private void drawLine(GuiGraphics g, int x, int y, int w, int color) {
         g.fill(x, y, x + w, y + 1, color);
     }

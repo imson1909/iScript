@@ -59,6 +59,7 @@ public class ScriptGraphManager {
     public static void updateClientCache(Map<String, Graph> graphs) {
         CLIENT_CACHE.clear();
         if (graphs != null) CLIENT_CACHE.putAll(graphs);
+        CLIENT_JS_CACHE.keySet().removeIf(id -> !CLIENT_CACHE.containsKey(id));
     }
 
     public static void putClientCache(String id, Graph graph) {

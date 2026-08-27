@@ -92,6 +92,12 @@ public class Log extends DashboardScreen.SubScreen {
     }
 
     @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (life.keyPressed(keyCode, scanCode, modifiers)) return true;
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
     public boolean mouseClicked(double mx, double my, int button) {
         if (button != 0) return false;
 

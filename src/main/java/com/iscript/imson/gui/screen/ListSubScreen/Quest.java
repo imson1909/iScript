@@ -24,9 +24,6 @@ public class Quest extends ListSubScreen {
 
     private int editorContentHeight = 0;
     private int editorScroll = 0;
-    private int editorTab = 0;
-    private int expandedStage = -1;
-    private int expandedObjective = -1;
 
     private int addObjectiveStageIdx = -1;
     private int addObjectiveY = 0;
@@ -57,6 +54,16 @@ public class Quest extends ListSubScreen {
 
     private int prereqDropdownIndex = 0;
 
+    private boolean showAddStage = false;
+    private boolean showAddObjective = false;
+    private boolean showAddPrereqDlg = false;
+    private boolean showAddItemReward = false;
+    private boolean showItemPicker = false;
+    private boolean showEditExp = false;
+    private boolean showEditCmd = false;
+    private boolean showEditTitle = false;
+    private boolean showEditItemCount = false;
+
     public Quest(DashboardScreen parent) {
         super(parent);
     }
@@ -77,7 +84,7 @@ public class Quest extends ListSubScreen {
     protected String getNewButtonText() { return I18n.s("iscript.quest.editor.new"); }
 
     @Override
-    protected boolean canCreateNew() { return false; }
+    protected boolean canCreateNew() { return true; }
 
     @Override
     protected net.minecraft.network.chat.Component getSearchLabel() {
@@ -99,11 +106,11 @@ public class Quest extends ListSubScreen {
 
     @Override
     protected void onSelect(String id) {
+        closeAllCustomModals();
         lifecycle.editors().removeAll();
         editorScroll = 0;
-        editorTab = 0;
-        expandedStage = -1;
-        expandedObjective = -1;
+        lifecycle.state().expandedStage = -1;
+        lifecycle.state().expandedObjective = -1;
         setSelectedId(id);
         if (id == null) return;
         int x = DashboardScreen.SIDEBAR_W;
@@ -116,16 +123,21 @@ public class Quest extends ListSubScreen {
         QuestData quest = DataAccess.quest(id);
         if (quest == null) return;
 
-        EditBox titleBox = lifecycle.editors().addBox("title", leftX + 4, 0, leftW - 8, 18, I18n.t("iscript.quest.editor.placeholder.title"), quest.getTitle());
+        String titleVal = quest.getTitle() != null ? quest.getTitle() : "";
+        String descVal = quest.getDescription() != null ? quest.getDescription() : "";
+        String giverVal = quest.getGiverNpcId() != null ? quest.getGiverNpcId() : "";
+        String turnVal = quest.getTurnInNpcId() != null ? quest.getTurnInNpcId() : "";
+
+        EditBox titleBox = lifecycle.editors().addBox("title", leftX + 4, 0, leftW - 8, 18, I18n.t("iscript.quest.editor.placeholder.title"), titleVal);
         if (titleBox != null) titleBox.setResponder(s -> lifecycle.save().debounce(10));
 
-        MultiLineEditBox descBox = lifecycle.editors().addMultiBox("desc", leftX + 4, 0, leftW - 8, 50, I18n.t("iscript.quest.editor.placeholder.description"), quest.getDescription());
+        MultiLineEditBox descBox = lifecycle.editors().addMultiBox("desc", leftX + 4, 0, leftW - 8, 50, I18n.t("iscript.quest.editor.placeholder.description"), descVal);
         if (descBox != null) descBox.setOnValueChanged(() -> lifecycle.save().debounce(10));
 
-        EditBox giverBox = lifecycle.editors().addBox("giver", leftX + 4, 0, leftW - 8, 18, I18n.t("iscript.quest.editor.placeholder.giver_npc"), quest.getGiverNpcId());
+        EditBox giverBox = lifecycle.editors().addBox("giver", leftX + 4, 0, leftW - 8, 18, I18n.t("iscript.quest.editor.placeholder.giver_npc"), giverVal);
         if (giverBox != null) giverBox.setResponder(s -> lifecycle.save().debounce(10));
 
-        EditBox turnInBox = lifecycle.editors().addBox("turnIn", leftX + 4, 0, leftW - 8, 18, I18n.t("iscript.quest.editor.placeholder.turnin_npc"), quest.getTurnInNpcId());
+        EditBox turnInBox = lifecycle.editors().addBox("turnIn", leftX + 4, 0, leftW - 8, 18, I18n.t("iscript.quest.editor.placeholder.turnin_npc"), turnVal);
         if (turnInBox != null) turnInBox.setResponder(s -> lifecycle.save().debounce(10));
     }
 
@@ -226,18 +238,39 @@ public class Quest extends ListSubScreen {
     @Override
     public void init() {
         super.init();
-        showAddObjectiveTypeMenu = false;
-        showAddPrereqMenu = false;
+        closeAllCustomModals();
         lifecycle.state().prereqMenuScroll = 0;
+        lifecycle.editors().removeAll();
+        String id = getSelectedId();
+        if (id != null) onSelect(id);
     }
 
     @Override
     public void tick() {
         super.tick();
+        boolean modalsOpen = hasCustomModals() ||
+                lifecycle.modals().isOpen("create") ||
+                lifecycle.modals().isOpen("rename") ||
+                lifecycle.modals().isOpen("prompt") ||
+                lifecycle.modals().isOpen("dialog") ||
+                lifecycle.editors().box("create") != null ||
+                lifecycle.editors().box("rename") != null ||
+                lifecycle.editors().box("prompt") != null;
+        EditBox titleBox = lifecycle.editors().box("title");
+        if (titleBox != null) titleBox.setVisible(!modalsOpen);
+        MultiLineEditBox descBox = lifecycle.editors().multi("desc");
+        if (descBox != null) descBox.setVisible(!modalsOpen);
+        EditBox giverBox = lifecycle.editors().box("giver");
+        if (giverBox != null) giverBox.setVisible(!modalsOpen);
+        EditBox turnInBox = lifecycle.editors().box("turnIn");
+        if (turnInBox != null) turnInBox.setVisible(!modalsOpen);
+        EditBox searchBox = lifecycle.editors().box("search");
+        if (searchBox != null) searchBox.setVisible(!modalsOpen);
     }
 
     @Override
     public void removed() {
+        closeAllCustomModals();
         super.removed();
     }
 
@@ -260,10 +293,7 @@ public class Quest extends ListSubScreen {
         g.renderOutline(x + 4, btnY, w - 8, btnSize, Theme.BORDER);
         g.drawCenteredString(this.font, "▶", x + w / 2, btnY + (btnSize - 8) / 2, giveHovered ? Theme.ACCENT : 0xFF44AA44);
         btnY += btnSize + 6;
-        boolean addHovered = mx >= x + 4 && mx <= x + w - 4 && my >= btnY && my <= btnY + btnSize;
-        g.fill(x + 4, btnY, x + w - 4, btnY + btnSize, addHovered ? Theme.BG_HOVER : Theme.BG_INNER);
-        g.renderOutline(x + 4, btnY, w - 8, btnSize, Theme.BORDER);
-        g.drawCenteredString(this.font, "+", x + w / 2, btnY + (btnSize - 8) / 2, addHovered ? Theme.TEXT : Theme.TEXT_DIM);
+
     }
 
     @Override
@@ -279,11 +309,7 @@ public class Quest extends ListSubScreen {
             giveQuest();
             return true;
         }
-        btnY += btnSize + 6;
-        if (mx >= toolbarX + 4 && mx <= toolbarX + getToolbarWidth() - 4 && my >= btnY && my <= btnY + btnSize) {
-            openPromptDialog("create", null);
-            return true;
-        }
+
         return false;
     }
 
@@ -303,30 +329,43 @@ public class Quest extends ListSubScreen {
         EditBox giverBox = lifecycle.editors().box("giver");
         EditBox turnInBox = lifecycle.editors().box("turnIn");
 
+        boolean modalsOpen = hasCustomModals() ||
+                lifecycle.modals().isOpen("create") ||
+                lifecycle.modals().isOpen("rename") ||
+                lifecycle.modals().isOpen("prompt") ||
+                lifecycle.modals().isOpen("dialog") ||
+                lifecycle.editors().box("create") != null ||
+                lifecycle.editors().box("rename") != null ||
+                lifecycle.editors().box("prompt") != null;
         if (titleBox != null) {
             titleBox.setX(leftX + 4);
-            titleBox.setY(leftY + 6);
+            titleBox.setY(modalsOpen ? -1000 : leftY + 18);
             titleBox.setWidth(leftW - 8);
-            titleBox.setVisible(true);
+            titleBox.setVisible(!modalsOpen);
         }
         if (descBox != null) {
             descBox.setX(leftX + 4);
-            descBox.setY(leftY + 28);
+            descBox.setY(modalsOpen ? -1000 : leftY + 52);
             descBox.setWidth(leftW - 8);
             descBox.setHeight(50);
-            descBox.setVisible(true);
+            descBox.setVisible(!modalsOpen);
         }
         if (giverBox != null) {
             giverBox.setX(leftX + 4);
-            giverBox.setY(leftY + 82);
+            giverBox.setY(modalsOpen ? -1000 : leftY + 118);
             giverBox.setWidth(leftW - 8);
-            giverBox.setVisible(true);
+            giverBox.setVisible(!modalsOpen);
         }
         if (turnInBox != null) {
             turnInBox.setX(leftX + 4);
-            turnInBox.setY(leftY + 106);
+            turnInBox.setY(modalsOpen ? -1000 : leftY + 152);
             turnInBox.setWidth(leftW - 8);
-            turnInBox.setVisible(true);
+            turnInBox.setVisible(!modalsOpen);
+        }
+        EditBox searchBox = lifecycle.editors().box("search");
+        if (searchBox != null) {
+            searchBox.setVisible(!modalsOpen);
+            if (modalsOpen) searchBox.setY(-1000);
         }
 
         if (this.minecraft != null) {
@@ -341,32 +380,36 @@ public class Quest extends ListSubScreen {
 
         int dy = leftY + 6 - editorScroll;
 
-        g.drawString(font, I18n.s("iscript.quest.editor.label.title"), leftX + 4, dy, Theme.TEXT_DIM);
-        dy += 22;
-        g.drawString(font, I18n.s("iscript.quest.editor.label.description"), leftX + 4, dy, Theme.TEXT_DIM);
-        dy += 56;
-        g.drawString(font, I18n.s("iscript.quest.editor.label.giver_npc"), leftX + 4, dy, Theme.TEXT_DIM);
-        dy += 22;
-        g.drawString(font, I18n.s("iscript.quest.editor.label.turnin_npc"), leftX + 4, dy, Theme.TEXT_DIM);
-        dy += 26;
+        if (!modalsOpen) {
+            g.drawString(font, I18n.s("iscript.quest.editor.label.title"), leftX + 4, dy, Theme.TEXT_DIM);
+            dy += 32;
+            g.drawString(font, I18n.s("iscript.quest.editor.label.description"), leftX + 4, dy, Theme.TEXT_DIM);
+            dy += 66;
+            g.drawString(font, I18n.s("iscript.quest.editor.label.giver_npc"), leftX + 4, dy, Theme.TEXT_DIM);
+            dy += 34;
+            g.drawString(font, I18n.s("iscript.quest.editor.label.turnin_npc"), leftX + 4, dy, Theme.TEXT_DIM);
+            dy += 34;
+        } else {
+            dy += 166;
+        }
 
         String[] tabs = {I18n.s("iscript.quest.editor.tab.stages"), I18n.s("iscript.quest.editor.tab.rewards"), I18n.s("iscript.quest.editor.tab.prereqs")};
         int tabW = leftW / tabs.length;
         for (int i = 0; i < tabs.length; i++) {
             int tx = leftX + 4 + i * tabW;
             boolean th = mx >= tx && mx <= tx + tabW - 2 && my >= dy && my <= dy + 18;
-            int tbg = editorTab == i ? 0xFF334455 : (th ? Theme.BG_HOVER : Theme.BG_INNER);
+            int tbg = lifecycle.state().editorTab == i ? 0xFF334455 : (th ? Theme.BG_HOVER : Theme.BG_INNER);
             g.fill(tx, dy, tx + tabW - 2, dy + 18, tbg);
             g.renderOutline(tx, dy, tabW - 2, 18, Theme.BORDER);
-            g.drawCenteredString(font, tabs[i], tx + tabW / 2 - 1, dy + 5, editorTab == i ? Theme.ACCENT : Theme.TEXT);
+            g.drawCenteredString(font, tabs[i], tx + tabW / 2 - 1, dy + 5, lifecycle.state().editorTab == i ? Theme.ACCENT : Theme.TEXT);
         }
         dy += 22;
 
-        if (editorTab == 0) {
+        if (lifecycle.state().editorTab == 0) {
             dy = renderStages(g, quest, leftX, dy, leftW, mx, my);
-        } else if (editorTab == 1) {
+        } else if (lifecycle.state().editorTab == 1) {
             dy = renderRewards(g, quest, leftX, dy, leftW, mx, my);
-        } else if (editorTab == 2) {
+        } else if (lifecycle.state().editorTab == 2) {
             dy = renderPrerequisites(g, quest, leftX, dy, leftW, mx, my);
         }
         editorContentHeight = dy - (leftY + 6);
@@ -383,7 +426,7 @@ public class Quest extends ListSubScreen {
 
         for (int s = 0; s < quest.getStages().size(); s++) {
             QuestStage stage = quest.getStages().get(s);
-            boolean expanded = expandedStage == s;
+            boolean expanded = lifecycle.state().expandedStage == s;
             boolean sh = mouseX >= leftX + 4 && mouseX <= leftX + leftW - 24 && mouseY >= dy && mouseY <= dy + 18;
             g.fill(leftX + 4, dy, leftX + leftW - 24, dy + 18, sh ? Theme.BORDER : Theme.BG_PANEL);
             g.renderOutline(leftX + 4, dy, leftW - 28, 18, Theme.BORDER);
@@ -409,7 +452,7 @@ public class Quest extends ListSubScreen {
 
                 for (int o = 0; o < stage.getObjectives().size(); o++) {
                     QuestObjective obj = stage.getObjectives().get(o);
-                    boolean objExp = expandedObjective == o;
+                    boolean objExp = lifecycle.state().expandedObjective == o;
                     boolean oh = mouseX >= leftX + 12 && mouseX <= leftX + leftW - 32 && mouseY >= dy && mouseY <= dy + 16;
                     g.fill(leftX + 12, dy, leftX + leftW - 32, dy + 16, oh ? Theme.BORDER : Theme.BG_PANEL);
                     g.renderOutline(leftX + 12, dy, leftW - 44, 16, Theme.BORDER);
@@ -525,35 +568,35 @@ public class Quest extends ListSubScreen {
         if (mx >= leftX + 4 && mx <= leftX + leftW - 4 && my >= dy && my <= dy + 18) {
             return false;
         }
-        dy += 22;
+        dy += 32;
 
         if (mx >= leftX + 4 && mx <= leftX + leftW - 4 && my >= dy && my <= dy + 50) {
             return false;
         }
-        dy += 56;
+        dy += 66;
 
         if (mx >= leftX + 4 && mx <= leftX + leftW - 4 && my >= dy && my <= dy + 18) {
             return false;
         }
-        dy += 22;
+        dy += 34;
 
         if (mx >= leftX + 4 && mx <= leftX + leftW - 4 && my >= dy && my <= dy + 18) {
             return false;
         }
-        dy += 26;
+        dy += 34;
 
         String[] tabs = {I18n.s("iscript.quest.editor.tab.stages"), I18n.s("iscript.quest.editor.tab.rewards"), I18n.s("iscript.quest.editor.tab.prereqs")};
         int tabW = leftW / tabs.length;
         for (int i = 0; i < tabs.length; i++) {
             int tx = leftX + 4 + i * tabW;
             if (mx >= tx && mx <= tx + tabW - 2 && my >= dy && my <= dy + 18) {
-                editorTab = i;
+                lifecycle.state().editorTab = i;
                 return true;
             }
         }
         dy += 22;
 
-        if (editorTab == 0) {
+        if (lifecycle.state().editorTab == 0) {
             boolean addStageH = mx >= leftX + 4 && mx <= leftX + leftW - 4 && my >= dy && my <= dy + 18;
             if (addStageH) {
                 openAddStageDialog();
@@ -563,7 +606,7 @@ public class Quest extends ListSubScreen {
 
             for (int s = 0; s < quest.getStages().size(); s++) {
                 QuestStage stage = quest.getStages().get(s);
-                boolean expanded = expandedStage == s;
+                boolean expanded = lifecycle.state().expandedStage == s;
                 boolean sh = mx >= leftX + 4 && mx <= leftX + leftW - 24 && my >= dy && my <= dy + 18;
                 boolean delH = mx >= leftX + leftW - 22 && mx <= leftX + leftW - 4 && my >= dy && my <= dy + 18;
                 if (delH) {
@@ -571,8 +614,8 @@ public class Quest extends ListSubScreen {
                     return true;
                 }
                 if (sh) {
-                    expandedStage = expanded ? -1 : s;
-                    expandedObjective = -1;
+                    lifecycle.state().expandedStage = expanded ? -1 : s;
+                    lifecycle.state().expandedObjective = -1;
                     return true;
                 }
                 dy += 20;
@@ -588,7 +631,7 @@ public class Quest extends ListSubScreen {
                     dy += 18;
 
                     for (int o = 0; o < stage.getObjectives().size(); o++) {
-                        boolean objExp = expandedObjective == o;
+                        boolean objExp = lifecycle.state().expandedObjective == o;
                         boolean oh = mx >= leftX + 12 && mx <= leftX + leftW - 32 && my >= dy && my <= dy + 16;
                         boolean objDelH = mx >= leftX + leftW - 30 && mx <= leftX + leftW - 12 && my >= dy && my <= dy + 16;
                         if (objDelH) {
@@ -596,7 +639,7 @@ public class Quest extends ListSubScreen {
                             return true;
                         }
                         if (oh) {
-                            expandedObjective = objExp ? -1 : o;
+                            lifecycle.state().expandedObjective = objExp ? -1 : o;
                             return true;
                         }
                         dy += 18;
@@ -608,7 +651,7 @@ public class Quest extends ListSubScreen {
                     dy += 4;
                 }
             }
-        } else if (editorTab == 1) {
+        } else if (lifecycle.state().editorTab == 1) {
             dy += 14;
             boolean titleH = mx >= leftX + 4 && mx <= leftX + leftW - 4 && my >= dy && my <= dy + 18;
             if (titleH) {
@@ -653,7 +696,7 @@ public class Quest extends ListSubScreen {
                 return true;
             }
             dy += 22;
-        } else if (editorTab == 2) {
+        } else if (lifecycle.state().editorTab == 2) {
             boolean addH = mx >= leftX + 4 && mx <= leftX + leftW - 4 && my >= dy && my <= dy + 18;
             if (addH) {
                 openAddPrereqDialog();
@@ -712,58 +755,76 @@ public class Quest extends ListSubScreen {
     @Override
     protected boolean hasCustomModals() {
         return showAddObjectiveTypeMenu || showAddPrereqMenu ||
-                lifecycle.modals().isOpen("addStage") ||
-                lifecycle.modals().isOpen("addObjective") ||
-                lifecycle.modals().isOpen("addPrereq") ||
-                lifecycle.modals().isOpen("addItemReward") ||
-                lifecycle.modals().isOpen("itemPicker") ||
-                lifecycle.modals().isOpen("editExp") ||
-                lifecycle.modals().isOpen("editCmd") ||
-                lifecycle.modals().isOpen("editTitle") ||
-                lifecycle.modals().isOpen("editItemCount");
+                showAddStage ||
+                showAddObjective ||
+                showAddPrereqDlg ||
+                showAddItemReward ||
+                showItemPicker ||
+                showEditExp ||
+                showEditCmd ||
+                showEditTitle ||
+                showEditItemCount;
     }
 
     @Override
     protected void renderCustomModals(GuiGraphics g, int mx, int my, float pt, int x, int y, int w, int h) {
-        if (lifecycle.modals().isOpen("addStage")) renderAddStageDialog(g, x, w, mx, my);
-        if (lifecycle.modals().isOpen("addObjective")) renderAddObjectiveDialog(g, x, w, mx, my);
-        if (lifecycle.modals().isOpen("addPrereq")) renderAddPrereqDialog(g, x, w, mx, my);
-        if (lifecycle.modals().isOpen("addItemReward")) renderAddItemRewardDialog(g, x, w, mx, my);
-        if (lifecycle.modals().isOpen("itemPicker")) renderItemPicker(g, x, w, mx, my);
-        if (lifecycle.modals().isOpen("editExp")) renderEditExpDialog(g, x, w, mx, my);
-        if (lifecycle.modals().isOpen("editCmd")) renderEditCommandDialog(g, x, w, mx, my);
-        if (lifecycle.modals().isOpen("editTitle")) renderEditTitleDialog(g, x, w, mx, my);
-        if (lifecycle.modals().isOpen("editItemCount")) renderEditItemCountDialog(g, x, w, mx, my);
+        if (showAddStage) renderAddStageDialog(g, x, w, mx, my, pt);
+        if (showAddObjective) renderAddObjectiveDialog(g, x, w, mx, my);
+        if (showAddPrereqDlg) renderAddPrereqDialog(g, x, w, mx, my);
+        if (showAddItemReward) renderAddItemRewardDialog(g, x, w, mx, my);
+        if (showItemPicker) renderItemPicker(g, x, w, mx, my);
+        if (showEditExp) renderEditExpDialog(g, x, w, mx, my);
+        if (showEditCmd) renderEditCommandDialog(g, x, w, mx, my);
+        if (showEditTitle) renderEditTitleDialog(g, x, w, mx, my);
+        if (showEditItemCount) renderEditItemCountDialog(g, x, w, mx, my);
         if (showAddObjectiveTypeMenu) renderObjectiveTypeMenu(g, mx, my);
         if (showAddPrereqMenu) renderPrereqMenu(g, mx, my);
     }
 
-    private void renderAddStageDialog(GuiGraphics g, int x, int w, int mouseX, int mouseY) {
-        int cx = x + w / 2;
-        int dw = 220;
-        int dh = 100;
-        int dx = cx - dw / 2;
+    private void renderAddStageDialog(GuiGraphics g, int x, int w, int mouseX, int mouseY, float pt) {
+        int dw = 280;
+        int dh = 150;
+        int dx = x + w / 2 - dw / 2;
         int dy = addStageY;
 
-        g.fill(dx - 4, dy - 4, dx + dw + 4, dy + dh + 4, Theme.alpha(Theme.BG_INNER, 0.8f));
+        g.fill(dx - 6, dy - 6, dx + dw + 6, dy + dh + 6, Theme.alpha(Theme.BG_INNER, 0.85f));
         g.fill(dx, dy, dx + dw, dy + dh, Theme.BG_INNER);
         g.renderOutline(dx, dy, dw, dh, Theme.ACCENT);
-        g.drawCenteredString(this.font, I18n.s("iscript.quest.editor.dialog.new_stage"), cx, dy + 6, Theme.ACCENT);
+        g.drawCenteredString(this.font, "Добавить этап", dx + dw / 2, dy + 8, Theme.ACCENT);
 
+        int px = dx + 16;
+        int pw = dw - 32;
+
+        g.drawString(font, "ID этапа:", px, dy + 28, Theme.TEXT_DIM);
         EditBox stageIdBox = lifecycle.editors().box("stageId");
-        if (stageIdBox != null) { stageIdBox.setX(cx - 100); stageIdBox.setY(dy + 24); }
+        if (stageIdBox != null) {
+            stageIdBox.setX(px);
+            stageIdBox.setY(dy + 40);
+            stageIdBox.setWidth(pw);
+            stageIdBox.render(g, mouseX, mouseY, pt);
+        }
+
+        g.drawString(font, "Описание:", px, dy + 64, Theme.TEXT_DIM);
         EditBox stageDescBox = lifecycle.editors().box("stageDesc");
-        if (stageDescBox != null) { stageDescBox.setX(cx - 100); stageDescBox.setY(dy + 52); }
+        if (stageDescBox != null) {
+            stageDescBox.setX(px);
+            stageDescBox.setY(dy + 76);
+            stageDescBox.setWidth(pw);
+            stageDescBox.render(g, mouseX, mouseY, pt);
+        }
 
-        boolean okH = mouseX >= cx - 50 && mouseX <= cx - 2 && mouseY >= dy + 74 && mouseY <= dy + 96;
-        g.fill(cx - 50, dy + 74, cx - 2, dy + 96, okH ? Theme.BG_HOVER : Theme.BG_INNER);
-        g.renderOutline(cx - 50, dy + 74, 48, 22, Theme.BORDER);
-        g.drawCenteredString(this.font, I18n.s("iscript.quest.editor.button.add"), cx - 26, dy + 79, okH ? Theme.ACCENT : 0xFF44AA44);
+        int btnW = (pw - 8) / 2;
+        int by = dy + dh - 34;
 
-        boolean cancelH = mouseX >= cx + 2 && mouseX <= cx + 50 && mouseY >= dy + 74 && mouseY <= dy + 96;
-        g.fill(cx + 2, dy + 74, cx + 50, dy + 96, cancelH ? Theme.BG_HOVER : Theme.BG_INNER);
-        g.renderOutline(cx + 2, dy + 74, 48, 22, Theme.BORDER);
-        g.drawCenteredString(this.font, I18n.s("iscript.quest.editor.button.cancel"), cx + 26, dy + 79, cancelH ? Theme.ERROR : 0xFFAA4444);
+        boolean okH = mouseX >= px && mouseX <= px + btnW && mouseY >= by && mouseY <= by + 24;
+        g.fill(px, by, px + btnW, by + 24, okH ? Theme.BG_HOVER : Theme.BG_INNER);
+        g.renderOutline(px, by, btnW, 24, Theme.BORDER);
+        g.drawCenteredString(this.font, I18n.s("iscript.quest.editor.button.add"), px + btnW / 2, by + 7, okH ? Theme.ACCENT : 0xFF44AA44);
+
+        boolean cancelH = mouseX >= px + btnW + 8 && mouseX <= px + pw && mouseY >= by && mouseY <= by + 24;
+        g.fill(px + btnW + 8, by, px + pw, by + 24, cancelH ? Theme.BG_HOVER : Theme.BG_INNER);
+        g.renderOutline(px + btnW + 8, by, btnW, 24, Theme.BORDER);
+        g.drawCenteredString(this.font, I18n.s("iscript.quest.editor.button.cancel"), px + btnW + 8 + btnW / 2, by + 7, cancelH ? Theme.ERROR : 0xFFAA4444);
     }
 
     private void renderAddObjectiveDialog(GuiGraphics g, int x, int w, int mouseX, int mouseY) {
@@ -815,6 +876,7 @@ public class Quest extends ListSubScreen {
         g.drawCenteredString(this.font, I18n.s("iscript.quest.editor.dialog.add_prereq"), cx, dy + 6, Theme.ACCENT);
 
         List<String> ids = new ArrayList<>(DataAccess.quests().keySet());
+        ids.remove(getSelectedId());
         Collections.sort(ids);
         String current = this.prereqDropdownIndex >= 0 && this.prereqDropdownIndex < ids.size() ? ids.get(this.prereqDropdownIndex) : "None";
         boolean dropH = mouseX >= cx - 100 && mouseX <= cx + 100 && mouseY >= dy + 24 && mouseY <= dy + 42;
@@ -1057,6 +1119,7 @@ public class Quest extends ListSubScreen {
 
     private void renderPrereqMenu(GuiGraphics g, int mouseX, int mouseY) {
         List<String> ids = new ArrayList<>(DataAccess.quests().keySet());
+        ids.remove(getSelectedId());
         Collections.sort(ids);
         int mw = 140;
         int visible = Math.min(ids.size() - lifecycle.state().prereqMenuScroll, 10);
@@ -1074,11 +1137,19 @@ public class Quest extends ListSubScreen {
 
     @Override
     protected boolean handleCustomModalClick(double mx, double my, int button) {
-        if (lifecycle.modals().isOpen("addStage")) {
-            int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
+        if (showAddStage) {
+            int x = DashboardScreen.SIDEBAR_W;
+            int w = this.parent.width - DashboardScreen.SIDEBAR_W;
+            int dw = 280;
+            int dh = 150;
+            int dx = x + w / 2 - dw / 2;
             int dy = addStageY;
-            if (mx >= cx - 50 && mx <= cx - 2 && my >= dy + 74 && my <= dy + 96) { confirmAddStage(); return true; }
-            if (mx >= cx + 2 && mx <= cx + 50 && my >= dy + 74 && my <= dy + 96) { closeAddStageDialog(); return true; }
+            int px = dx + 16;
+            int pw = dw - 32;
+            int btnW = (pw - 8) / 2;
+            int by = dy + dh - 34;
+            if (mx >= px && mx <= px + btnW && my >= by && my <= by + 24) { confirmAddStage(); return true; }
+            if (mx >= px + btnW + 8 && mx <= px + pw && my >= by && my <= by + 24) { closeAddStageDialog(); return true; }
             EditBox stageIdBox = lifecycle.editors().box("stageId");
             if (stageIdBox != null && mx >= stageIdBox.getX() && mx <= stageIdBox.getX() + stageIdBox.getWidth() && my >= stageIdBox.getY() && my <= stageIdBox.getY() + stageIdBox.getHeight()) {
                 parent.setFocusedWidget(stageIdBox); return stageIdBox.mouseClicked(mx, my, button);
@@ -1090,7 +1161,7 @@ public class Quest extends ListSubScreen {
             return true;
         }
 
-        if (lifecycle.modals().isOpen("addObjective")) {
+        if (showAddObjective) {
             int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
             int dy = addObjectiveY;
             if (mx >= cx - 100 && mx <= cx + 100 && my >= dy + 24 && my <= dy + 42) {
@@ -1113,7 +1184,7 @@ public class Quest extends ListSubScreen {
             return true;
         }
 
-        if (lifecycle.modals().isOpen("addPrereq")) {
+        if (showAddPrereqDlg) {
             int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
             int dy = addPrereqY;
             if (mx >= cx - 100 && mx <= cx + 100 && my >= dy + 24 && my <= dy + 42) {
@@ -1124,7 +1195,7 @@ public class Quest extends ListSubScreen {
             return true;
         }
 
-        if (lifecycle.modals().isOpen("addItemReward")) {
+        if (showAddItemReward) {
             int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
             int dy = addItemRewardY;
             if (mx >= cx - 50 && mx <= cx - 2 && my >= dy + 74 && my <= dy + 96) { confirmAddItemReward(); return true; }
@@ -1140,7 +1211,7 @@ public class Quest extends ListSubScreen {
             return true;
         }
 
-        if (lifecycle.modals().isOpen("itemPicker")) {
+        if (showItemPicker) {
             int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
             int dy = itemPickerY;
             int dw = 220;
@@ -1185,7 +1256,7 @@ public class Quest extends ListSubScreen {
             return true;
         }
 
-        if (lifecycle.modals().isOpen("editExp")) {
+        if (showEditExp) {
             int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
             int dy = editExpY;
             if (mx >= cx - 50 && mx <= cx - 2 && my >= dy + 52 && my <= dy + 74) { confirmEditExp(); return true; }
@@ -1197,7 +1268,7 @@ public class Quest extends ListSubScreen {
             return true;
         }
 
-        if (lifecycle.modals().isOpen("editCmd")) {
+        if (showEditCmd) {
             int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
             int dy = editCmdY;
             if (mx >= cx - 50 && mx <= cx - 2 && my >= dy + 52 && my <= dy + 74) { confirmEditCommand(); return true; }
@@ -1209,7 +1280,7 @@ public class Quest extends ListSubScreen {
             return true;
         }
 
-        if (lifecycle.modals().isOpen("editTitle")) {
+        if (showEditTitle) {
             int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
             int dy = editTitleY;
             if (mx >= cx - 50 && mx <= cx - 2 && my >= dy + 52 && my <= dy + 74) { confirmEditTitle(); return true; }
@@ -1221,7 +1292,7 @@ public class Quest extends ListSubScreen {
             return true;
         }
 
-        if (lifecycle.modals().isOpen("editItemCount")) {
+        if (showEditItemCount) {
             int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
             int dy = editItemCountY;
             if (mx >= cx - 50 && mx <= cx - 2 && my >= dy + 52 && my <= dy + 74) { confirmEditItemCount(); return true; }
@@ -1265,7 +1336,7 @@ public class Quest extends ListSubScreen {
 
     @Override
     protected boolean handleCustomModalKey(int keyCode, int scanCode, int modifiers) {
-        if (lifecycle.modals().isOpen("addStage")) {
+        if (showAddStage) {
             if (keyCode == 257 || keyCode == 335) { confirmAddStage(); return true; }
             if (keyCode == 256) { closeAddStageDialog(); return true; }
             EditBox stageIdBox = lifecycle.editors().box("stageId");
@@ -1274,7 +1345,7 @@ public class Quest extends ListSubScreen {
             if (stageDescBox != null && stageDescBox.isFocused()) return stageDescBox.keyPressed(keyCode, scanCode, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("addObjective")) {
+        if (showAddObjective) {
             if (keyCode == 257 || keyCode == 335) { confirmAddObjective(); return true; }
             if (keyCode == 256) { closeAddObjectiveDialog(); return true; }
             EditBox objTargetBox = lifecycle.editors().box("objTarget");
@@ -1285,12 +1356,12 @@ public class Quest extends ListSubScreen {
             if (objDescBox != null && objDescBox.isFocused()) return objDescBox.keyPressed(keyCode, scanCode, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("addPrereq")) {
+        if (showAddPrereqDlg) {
             if (keyCode == 257 || keyCode == 335) { confirmAddPrereq(); return true; }
             if (keyCode == 256) { closeAddPrereqDialog(); return true; }
             return true;
         }
-        if (lifecycle.modals().isOpen("addItemReward")) {
+        if (showAddItemReward) {
             if (keyCode == 257 || keyCode == 335) { confirmAddItemReward(); return true; }
             if (keyCode == 256) { closeAddItemRewardDialog(); return true; }
             EditBox rewardItemBox = lifecycle.editors().box("rewardItem");
@@ -1299,7 +1370,7 @@ public class Quest extends ListSubScreen {
             if (rewardItemCountBox != null && rewardItemCountBox.isFocused()) return rewardItemCountBox.keyPressed(keyCode, scanCode, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("itemPicker")) {
+        if (showItemPicker) {
             if (keyCode == 257 || keyCode == 335) { confirmItemPicker(); return true; }
             if (keyCode == 256) { closeItemPicker(); return true; }
             EditBox itemPickerSearchBox = lifecycle.editors().box("itemPickerSearch");
@@ -1308,28 +1379,28 @@ public class Quest extends ListSubScreen {
             if (pickerCountBox != null && pickerCountBox.isFocused()) return pickerCountBox.keyPressed(keyCode, scanCode, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("editExp")) {
+        if (showEditExp) {
             if (keyCode == 257 || keyCode == 335) { confirmEditExp(); return true; }
             if (keyCode == 256) { closeEditExpDialog(); return true; }
             EditBox editExpBox = lifecycle.editors().box("editExp");
             if (editExpBox != null && editExpBox.isFocused()) return editExpBox.keyPressed(keyCode, scanCode, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("editCmd")) {
+        if (showEditCmd) {
             if (keyCode == 257 || keyCode == 335) { confirmEditCommand(); return true; }
             if (keyCode == 256) { closeEditCommandDialog(); return true; }
             EditBox editCmdBox = lifecycle.editors().box("editCmd");
             if (editCmdBox != null && editCmdBox.isFocused()) return editCmdBox.keyPressed(keyCode, scanCode, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("editTitle")) {
+        if (showEditTitle) {
             if (keyCode == 257 || keyCode == 335) { confirmEditTitle(); return true; }
             if (keyCode == 256) { closeEditTitleDialog(); return true; }
             EditBox editTitleBox = lifecycle.editors().box("editTitle");
             if (editTitleBox != null && editTitleBox.isFocused()) return editTitleBox.keyPressed(keyCode, scanCode, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("editItemCount")) {
+        if (showEditItemCount) {
             if (keyCode == 257 || keyCode == 335) { confirmEditItemCount(); return true; }
             if (keyCode == 256) { closeEditItemCountDialog(); return true; }
             EditBox editItemCountBox = lifecycle.editors().box("editItemCount");
@@ -1341,14 +1412,14 @@ public class Quest extends ListSubScreen {
 
     @Override
     protected boolean handleCustomModalChar(char codePoint, int modifiers) {
-        if (lifecycle.modals().isOpen("addStage")) {
+        if (showAddStage) {
             EditBox stageIdBox = lifecycle.editors().box("stageId");
             if (stageIdBox != null && stageIdBox.isFocused()) return stageIdBox.charTyped(codePoint, modifiers);
             EditBox stageDescBox = lifecycle.editors().box("stageDesc");
             if (stageDescBox != null && stageDescBox.isFocused()) return stageDescBox.charTyped(codePoint, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("addObjective")) {
+        if (showAddObjective) {
             EditBox objTargetBox = lifecycle.editors().box("objTarget");
             if (objTargetBox != null && objTargetBox.isFocused()) return objTargetBox.charTyped(codePoint, modifiers);
             EditBox objCountBox = lifecycle.editors().box("objCount");
@@ -1357,36 +1428,36 @@ public class Quest extends ListSubScreen {
             if (objDescBox != null && objDescBox.isFocused()) return objDescBox.charTyped(codePoint, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("addItemReward")) {
+        if (showAddItemReward) {
             EditBox rewardItemBox = lifecycle.editors().box("rewardItem");
             if (rewardItemBox != null && rewardItemBox.isFocused()) return rewardItemBox.charTyped(codePoint, modifiers);
             EditBox rewardItemCountBox = lifecycle.editors().box("rewardCount");
             if (rewardItemCountBox != null && rewardItemCountBox.isFocused()) return rewardItemCountBox.charTyped(codePoint, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("itemPicker")) {
+        if (showItemPicker) {
             EditBox itemPickerSearchBox = lifecycle.editors().box("itemPickerSearch");
             if (itemPickerSearchBox != null && itemPickerSearchBox.isFocused()) return itemPickerSearchBox.charTyped(codePoint, modifiers);
             EditBox pickerCountBox = lifecycle.editors().box("itemPickerCount");
             if (pickerCountBox != null && pickerCountBox.isFocused()) return pickerCountBox.charTyped(codePoint, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("editExp")) {
+        if (showEditExp) {
             EditBox editExpBox = lifecycle.editors().box("editExp");
             if (editExpBox != null && editExpBox.isFocused()) return editExpBox.charTyped(codePoint, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("editCmd")) {
+        if (showEditCmd) {
             EditBox editCmdBox = lifecycle.editors().box("editCmd");
             if (editCmdBox != null && editCmdBox.isFocused()) return editCmdBox.charTyped(codePoint, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("editTitle")) {
+        if (showEditTitle) {
             EditBox editTitleBox = lifecycle.editors().box("editTitle");
             if (editTitleBox != null && editTitleBox.isFocused()) return editTitleBox.charTyped(codePoint, modifiers);
             return true;
         }
-        if (lifecycle.modals().isOpen("editItemCount")) {
+        if (showEditItemCount) {
             EditBox editItemCountBox = lifecycle.editors().box("editItemCount");
             if (editItemCountBox != null && editItemCountBox.isFocused()) return editItemCountBox.charTyped(codePoint, modifiers);
             return true;
@@ -1396,7 +1467,7 @@ public class Quest extends ListSubScreen {
 
     @Override
     protected boolean handleCustomModalScroll(double mx, double my, double delta) {
-        if (lifecycle.modals().isOpen("itemPicker")) {
+        if (showItemPicker) {
             int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
             int dw = 220;
             int dx = cx - dw / 2;
@@ -1419,23 +1490,51 @@ public class Quest extends ListSubScreen {
         return false;
     }
 
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (lifecycle.keyPressed(keyCode, scanCode, modifiers)) return true;
+        if (hasCustomModals() && keyCode == 256) {
+            closeAllCustomModals();
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    private void closeAllCustomModals() {
+        if (showAddStage) closeAddStageDialog();
+        if (showAddObjective) closeAddObjectiveDialog();
+        if (showAddPrereqDlg) closeAddPrereqDialog();
+        if (showAddItemReward) closeAddItemRewardDialog();
+        if (showItemPicker) closeItemPicker();
+        if (showEditExp) closeEditExpDialog();
+        if (showEditCmd) closeEditCommandDialog();
+        if (showEditTitle) closeEditTitleDialog();
+        if (showEditItemCount) closeEditItemCountDialog();
+        showAddObjectiveTypeMenu = false;
+        showAddPrereqMenu = false;
+    }
+
     private void openAddStageDialog() {
-        lifecycle.modals().open("addStage");
-        addStageY = this.parent.height / 2 - 40;
-        int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
-        lifecycle.editors().addBox("stageId", cx - 100, addStageY + 20, 200, 20, I18n.t("iscript.quest.editor.placeholder.stage_id"));
+        showAddStage = true;
+        addStageY = this.parent.height / 2 - 75;
+        int x = DashboardScreen.SIDEBAR_W;
+        int w = this.parent.width - DashboardScreen.SIDEBAR_W;
+        int dx = x + w / 2 - 140 + 16;
+        lifecycle.editors().addBox("stageId", dx, addStageY + 40, 248, 18, I18n.t("iscript.quest.editor.placeholder.stage_id"));
         EditBox stageIdBox = lifecycle.editors().box("stageId");
         if (stageIdBox != null) stageIdBox.setMaxLength(64);
-        lifecycle.editors().addBox("stageDesc", cx - 100, addStageY + 48, 200, 20, I18n.t("iscript.quest.editor.placeholder.description"));
+        lifecycle.editors().addBox("stageDesc", dx, addStageY + 76, 248, 18, I18n.t("iscript.quest.editor.placeholder.description"));
         EditBox stageDescBox = lifecycle.editors().box("stageDesc");
         if (stageDescBox != null) stageDescBox.setMaxLength(128);
         parent.setFocusedWidget(stageIdBox);
     }
 
     private void closeAddStageDialog() {
-        lifecycle.modals().close("addStage");
+        showAddStage = false;
         lifecycle.editors().remove("stageId");
         lifecycle.editors().remove("stageDesc");
+        lifecycle.state().editorValues.remove("stageId");
+        lifecycle.state().editorValues.remove("stageDesc");
     }
 
     private void confirmAddStage() {
@@ -1461,13 +1560,13 @@ public class Quest extends ListSubScreen {
         QuestData quest = DataAccess.quest(selectedId);
         if (quest == null || idx < 0 || idx >= quest.getStages().size()) return;
         quest.getStages().remove(idx);
-        if (expandedStage == idx) expandedStage = -1;
-        else if (expandedStage > idx) expandedStage--;
+        if (lifecycle.state().expandedStage == idx) lifecycle.state().expandedStage = -1;
+        else if (lifecycle.state().expandedStage > idx) lifecycle.state().expandedStage--;
         ModData.setDirty();
     }
 
     private void openAddObjectiveDialog(int stageIdx) {
-        lifecycle.modals().open("addObjective");
+        showAddObjective = true;
         addObjectiveStageIdx = stageIdx;
         addObjectiveY = this.parent.height / 2 - 50;
         int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
@@ -1483,11 +1582,14 @@ public class Quest extends ListSubScreen {
     }
 
     private void closeAddObjectiveDialog() {
-        lifecycle.modals().close("addObjective");
+        showAddObjective = false;
         addObjectiveStageIdx = -1;
         lifecycle.editors().remove("objTarget");
         lifecycle.editors().remove("objCount");
         lifecycle.editors().remove("objDesc");
+        lifecycle.state().editorValues.remove("objTarget");
+        lifecycle.state().editorValues.remove("objCount");
+        lifecycle.state().editorValues.remove("objDesc");
     }
 
     private void confirmAddObjective() {
@@ -1520,19 +1622,20 @@ public class Quest extends ListSubScreen {
         List<QuestObjective> objs = quest.getStages().get(stageIdx).getObjectives();
         if (objIdx < 0 || objIdx >= objs.size()) return;
         objs.remove(objIdx);
-        if (expandedObjective == objIdx) expandedObjective = -1;
-        else if (expandedObjective > objIdx) expandedObjective--;
+        if (lifecycle.state().expandedObjective == objIdx) lifecycle.state().expandedObjective = -1;
+        else if (lifecycle.state().expandedObjective > objIdx) lifecycle.state().expandedObjective--;
         ModData.setDirty();
     }
 
     private void openAddPrereqDialog() {
-        lifecycle.modals().open("addPrereq");
+        showAddPrereqDlg = true;
         addPrereqY = this.parent.height / 2 - 30;
         prereqDropdownIndex = 0;
     }
 
     private void closeAddPrereqDialog() {
-        lifecycle.modals().close("addPrereq");
+        showAddPrereqDlg = false;
+        showAddPrereqMenu = false;
     }
 
     private void confirmAddPrereq() {
@@ -1541,10 +1644,11 @@ public class Quest extends ListSubScreen {
         QuestData quest = DataAccess.quest(selectedId);
         if (quest == null) return;
         List<String> allIds = new ArrayList<>(DataAccess.quests().keySet());
+        allIds.remove(getSelectedId());
         Collections.sort(allIds);
         if (prereqDropdownIndex >= 0 && prereqDropdownIndex < allIds.size()) {
             String id = allIds.get(prereqDropdownIndex);
-            if (!id.equals(selectedId) && !quest.getPrerequisites().contains(id)) {
+            if (!quest.getPrerequisites().contains(id)) {
                 quest.getPrerequisites().add(id);
                 ModData.setDirty();
             }
@@ -1560,7 +1664,7 @@ public class Quest extends ListSubScreen {
     }
 
     private void openAddItemRewardDialog() {
-        lifecycle.modals().open("addItemReward");
+        showAddItemReward = true;
         addItemRewardY = this.parent.height / 2 - 30;
         int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
         lifecycle.editors().addBox("rewardItem", cx - 100, addItemRewardY + 20, 200, 20, I18n.t("iscript.quest.editor.placeholder.item_id"));
@@ -1571,9 +1675,11 @@ public class Quest extends ListSubScreen {
     }
 
     private void closeAddItemRewardDialog() {
-        lifecycle.modals().close("addItemReward");
+        showAddItemReward = false;
         lifecycle.editors().remove("rewardItem");
         lifecycle.editors().remove("rewardCount");
+        lifecycle.state().editorValues.remove("rewardItem");
+        lifecycle.state().editorValues.remove("rewardCount");
     }
 
     private void confirmAddItemReward() {
@@ -1620,7 +1726,7 @@ public class Quest extends ListSubScreen {
     }
 
     private void openItemPicker() {
-        lifecycle.modals().open("itemPicker");
+        showItemPicker = true;
         itemPickerY = this.parent.height / 2 - 100;
         itemPickerSelectedId = "";
         itemPickerScroll = 0;
@@ -1654,10 +1760,12 @@ public class Quest extends ListSubScreen {
     }
 
     private void closeItemPicker() {
-        lifecycle.modals().close("itemPicker");
+        showItemPicker = false;
         itemPickerSelectedId = "";
         lifecycle.editors().remove("itemPickerSearch");
         lifecycle.editors().remove("itemPickerCount");
+        lifecycle.state().editorValues.remove("itemPickerSearch");
+        lifecycle.state().editorValues.remove("itemPickerCount");
     }
 
     private void confirmItemPicker() {
@@ -1677,7 +1785,7 @@ public class Quest extends ListSubScreen {
     }
 
     private void openEditExpDialog() {
-        lifecycle.modals().open("editExp");
+        showEditExp = true;
         editExpY = this.parent.height / 2 - 30;
         int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
         String selectedId = getSelectedId();
@@ -1687,8 +1795,9 @@ public class Quest extends ListSubScreen {
     }
 
     private void closeEditExpDialog() {
-        lifecycle.modals().close("editExp");
+        showEditExp = false;
         lifecycle.editors().remove("editExp");
+        lifecycle.state().editorValues.remove("editExp");
     }
 
     private void confirmEditExp() {
@@ -1705,7 +1814,7 @@ public class Quest extends ListSubScreen {
     }
 
     private void openEditCommandDialog() {
-        lifecycle.modals().open("editCmd");
+        showEditCmd = true;
         editCmdY = this.parent.height / 2 - 30;
         int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
         String selectedId = getSelectedId();
@@ -1717,8 +1826,9 @@ public class Quest extends ListSubScreen {
     }
 
     private void closeEditCommandDialog() {
-        lifecycle.modals().close("editCmd");
+        showEditCmd = false;
         lifecycle.editors().remove("editCmd");
+        lifecycle.state().editorValues.remove("editCmd");
     }
 
     private void confirmEditCommand() {
@@ -1734,7 +1844,7 @@ public class Quest extends ListSubScreen {
     }
 
     private void openEditTitleDialog() {
-        lifecycle.modals().open("editTitle");
+        showEditTitle = true;
         editTitleY = this.parent.height / 2 - 30;
         int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
         String selectedId = getSelectedId();
@@ -1746,8 +1856,9 @@ public class Quest extends ListSubScreen {
     }
 
     private void closeEditTitleDialog() {
-        lifecycle.modals().close("editTitle");
+        showEditTitle = false;
         lifecycle.editors().remove("editTitle");
+        lifecycle.state().editorValues.remove("editTitle");
     }
 
     private void confirmEditTitle() {
@@ -1763,7 +1874,7 @@ public class Quest extends ListSubScreen {
     }
 
     private void openEditItemCountDialog(int idx) {
-        lifecycle.modals().open("editItemCount");
+        showEditItemCount = true;
         editItemCountIdx = idx;
         editItemCountY = this.parent.height / 2 - 30;
         int cx = DashboardScreen.SIDEBAR_W + (this.parent.width - DashboardScreen.SIDEBAR_W) / 2;
@@ -1778,9 +1889,10 @@ public class Quest extends ListSubScreen {
     }
 
     private void closeEditItemCountDialog() {
-        lifecycle.modals().close("editItemCount");
+        showEditItemCount = false;
         editItemCountIdx = -1;
         lifecycle.editors().remove("editItemCount");
+        lifecycle.state().editorValues.remove("editItemCount");
     }
 
     private void confirmEditItemCount() {

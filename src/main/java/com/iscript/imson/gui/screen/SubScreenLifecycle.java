@@ -87,6 +87,7 @@ public class SubScreenLifecycle {
         public Map<String, double[]> savedCanvasPositions = new HashMap<>();
         public double canvasX = 0, canvasY = 0, zoom = 1.0;
         public String lastEditText = null;
+        public String savedScriptId = null;
         public int savedScrollOffset = 0;
         public int savedHorizontalScrollOffset = 0;
         public int savedCursorPos = 0;
@@ -107,6 +108,15 @@ public class SubScreenLifecycle {
 
         public EditBox createIfRequested() {
             if (!requested || screen.getMinecraft() == null) return null;
+            if (box != null && screen.parent.children().contains(box)) {
+                box.setX(x); box.setY(y);
+                box.setWidth(w); box.setHeight(h);
+                return box;
+            }
+            if (box != null) {
+                screen.parent.removeEditorWidget(box);
+                box = null;
+            }
             box = new EditBox(screen.getMinecraft().font, x, y, w, h, label);
             box.setMaxLength(64);
             box.setTextColor(Theme.TEXT);
@@ -149,6 +159,12 @@ public class SubScreenLifecycle {
         public void scroll(int v) { state.scroll = v; }
         public int editorScroll() { return state.editorScroll; }
         public void editorScroll(int v) { state.editorScroll = v; }
+        public int editorTab() { return state.editorTab; }
+        public void editorTab(int v) { state.editorTab = v; }
+        public int expandedStage() { return state.expandedStage; }
+        public void expandedStage(int v) { state.expandedStage = v; }
+        public int expandedObjective() { return state.expandedObjective; }
+        public void expandedObjective(int v) { state.expandedObjective = v; }
     }
 
     public class SaveManager {
@@ -241,10 +257,7 @@ public class SubScreenLifecycle {
 
         public void restoreOpen() {
             for (ModalDef d : defs.values()) {
-                if (state.modalOpenFlags.getOrDefault(d.id, false)) {
-                    if (d.setOpen != null) d.setOpen.accept(true);
-                    if (d.onCreate != null) d.onCreate.run();
-                }
+                state.modalOpenFlags.put(d.id, false);
             }
         }
 
@@ -256,6 +269,23 @@ public class SubScreenLifecycle {
                 }
                 state.modalOpenFlags.put(d.id, false);
             }
+        }
+
+        public void closeAll() {
+            for (ModalDef d : defs.values()) {
+                if (d.isOpen != null && Boolean.TRUE.equals(d.isOpen.get())) {
+                    if (d.setOpen != null) d.setOpen.accept(false);
+                    if (d.onDestroy != null) d.onDestroy.run();
+                }
+                state.modalOpenFlags.put(d.id, false);
+            }
+        }
+
+        public boolean isAnyOpen() {
+            for (ModalDef d : defs.values()) {
+                if (d.isOpen != null && Boolean.TRUE.equals(d.isOpen.get())) return true;
+            }
+            return false;
         }
 
         public void open(String id) {
@@ -287,6 +317,16 @@ public class SubScreenLifecycle {
 
         public EditBox addBox(String id, int x, int y, int w, int h, Component label, String initial) {
             if (screen.getMinecraft() == null) return null;
+            EditBox existing = boxes.get(id);
+            if (existing != null && screen.parent.children().contains(existing)) {
+                existing.setX(x); existing.setY(y);
+                existing.setWidth(w); existing.setHeight(h);
+                return existing;
+            }
+            if (existing != null) {
+                screen.parent.removeEditorWidget(existing);
+                boxes.remove(id);
+            }
             String val = state.editorValues.getOrDefault(id, initial != null ? initial : "");
             EditBox box = new EditBox(screen.getMinecraft().font, x, y, w, h, label);
             box.setValue(val);
@@ -308,6 +348,16 @@ public class SubScreenLifecycle {
 
         public MultiLineEditBox addMultiBox(String id, int x, int y, int w, int h, Component label, String initial) {
             if (screen.getMinecraft() == null) return null;
+            MultiLineEditBox existing = multiBoxes.get(id);
+            if (existing != null && screen.parent.children().contains(existing)) {
+                existing.setX(x); existing.setY(y);
+                existing.setWidth(w); existing.setHeight(h);
+                return existing;
+            }
+            if (existing != null) {
+                screen.parent.removeEditorWidget(existing);
+                multiBoxes.remove(id);
+            }
             String val = state.editorValues.getOrDefault(id, initial != null ? initial : "");
             MultiLineEditBox box = new MultiLineEditBox(screen.getMinecraft().font, x, y, w, h, label, Component.empty());
             box.setValue(val);
@@ -338,6 +388,10 @@ public class SubScreenLifecycle {
             boxes.clear();
             for (Map.Entry<String, MultiLineEditBox> e : multiBoxes.entrySet()) {
                 state.editorValues.put(e.getKey(), e.getValue().getValue());
+                state.savedScrollOffset = e.getValue().getScrollOffset();
+                state.savedHorizontalScrollOffset = e.getValue().getHorizontalScrollOffset();
+                state.savedCursorPos = e.getValue().getCursorPos();
+                state.savedSelectStart = e.getValue().getSelectStart();
                 screen.parent.removeEditorWidget(e.getValue());
             }
             multiBoxes.clear();
@@ -505,5 +559,19 @@ public class SubScreenLifecycle {
             }
             return true;
         }
+    }
+
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == 256) {
+            if (modals.isAnyOpen()) {
+                modals.closeAll();
+                return true;
+            }
+            if (forms.isOpen()) {
+                forms.closeAll();
+                return true;
+            }
+        }
+        return false;
     }
 }

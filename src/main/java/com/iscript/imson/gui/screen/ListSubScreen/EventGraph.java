@@ -245,23 +245,22 @@ public class EventGraph extends GraphSubScreen {
 
     @Override
     protected String getNodeTypeKey(String typeId) {
-        return "iscript.event.node.type." + typeId.toLowerCase();
+        return switch (typeId.toUpperCase()) {
+            case "START" -> "iscript.event.node.type.event";
+            case "TRIGGER" -> "iscript.event.node.type.trigger";
+            case "IF" -> "iscript.event.node.type.condition";
+            case "SCRIPT_JS" -> "iscript.event.node.type.action";
+            case "DELAY" -> "iscript.event.node.type.delay";
+            case "RANDOM" -> "iscript.event.node.type.random";
+            case "LOOP" -> "iscript.event.node.type.loop";
+            case "STOP" -> "iscript.event.node.type.stop";
+            default -> "iscript.event.node.type." + typeId.toLowerCase();
+        };
     }
 
     @Override
     protected String getNodeTitle(Node node) {
-        String type = node.getType();
-        return switch (type) {
-            case "START" -> I18n.s("iscript.event.node.type.event");
-            case "TRIGGER" -> I18n.s("iscript.event.node.type.trigger");
-            case "IF" -> I18n.s("iscript.event.node.type.condition");
-            case "SCRIPT_JS" -> I18n.s("iscript.event.node.type.action");
-            case "DELAY" -> I18n.s("iscript.event.node.type.delay");
-            case "RANDOM" -> I18n.s("iscript.event.node.type.random");
-            case "LOOP" -> I18n.s("iscript.event.node.type.loop");
-            case "STOP" -> I18n.s("iscript.event.node.type.stop");
-            default -> type;
-        };
+        return I18n.s(getNodeTypeKey(node.getType()));
     }
 
     @Override
@@ -335,5 +334,10 @@ public class EventGraph extends GraphSubScreen {
     @Override
     protected boolean useI18nForList() {
         return true;
+    }
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (life.keyPressed(keyCode, scanCode, modifiers)) return true;
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 }

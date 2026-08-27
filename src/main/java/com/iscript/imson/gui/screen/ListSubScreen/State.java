@@ -104,6 +104,11 @@ public class State extends ListSubScreen {
                 (lifecycle.search().box() != null && lifecycle.search().box().isFocused());
         if (lifecycle.save().isDirty() && !anyFocused) doSave();
         if (anyFocused) lifecycle.save().markDirty();
+        boolean modalOpen = lifecycle.modals().isOpen("confirm") || lifecycle.modals().isOpen("prompt") || showTargetSelector;
+        EditBox keyBox = lifecycle.editors().box("key");
+        EditBox valueBox = lifecycle.editors().box("value");
+        if (keyBox != null) keyBox.setVisible(!modalOpen);
+        if (valueBox != null) valueBox.setVisible(!modalOpen);
     }
 
     @Override
@@ -341,7 +346,6 @@ public class State extends ListSubScreen {
             keyBox.setX(leftX);
             keyBox.setY(leftY + 12);
             keyBox.setWidth(leftW);
-            keyBox.setVisible(true);
         }
 
         String[] typeLabels = {I18n.s("iscript.state.type.string"), I18n.s("iscript.state.type.number"), I18n.s("iscript.state.type.boolean")};
@@ -364,7 +368,6 @@ public class State extends ListSubScreen {
                 valueBox.setX(leftX);
                 valueBox.setY(leftY + 50);
                 valueBox.setWidth(leftW);
-                valueBox.setVisible(true);
             }
         }
 
@@ -693,6 +696,12 @@ public class State extends ListSubScreen {
         doSave();
         showTargetSelector = false;
         super.removed();
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (lifecycle.keyPressed(keyCode, scanCode, modifiers)) return true;
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     public void receiveStates(CompoundTag data) {

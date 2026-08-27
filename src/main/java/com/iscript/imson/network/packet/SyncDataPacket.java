@@ -69,7 +69,7 @@ public class SyncDataPacket {
                 case STATE_GRAPHS -> handleStateGraphs(packet.data);
                 case TRIGGERS -> {
                     if (net.minecraft.client.Minecraft.getInstance().screen instanceof DashboardScreen dash) {
-                        dash.receiveTriggers(packet.data); // или packet.data — смотри как называется поле
+                        dash.receiveTriggers(packet.data);
                     }
                 }
             }
@@ -160,7 +160,9 @@ public class SyncDataPacket {
         ScriptGraphManager.putClientCache(id, graph);
         ScriptGraphManager.updateClientJsCache(id, js);
         if (Minecraft.getInstance().screen instanceof DashboardScreen dash) {
-            dash.onScriptContentReceived(id, js);
+            if (id.equals(DashboardScreen.EDITOR_STATE.selectedId)) {
+                dash.onScriptContentReceived(id, js);
+            }
         }
     }
 

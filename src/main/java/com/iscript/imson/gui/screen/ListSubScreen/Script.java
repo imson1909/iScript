@@ -23,12 +23,18 @@ public class Script extends ListSubScreen {
 
     @Override
     public void init() {
-        if (getSelectedId() == null) {
-            DashboardScreen.EDITOR_STATE.selectedId = null;
-            DashboardScreen.EDITOR_STATE.pendingContent = null;
-            DashboardScreen.EDITOR_STATE.isLoading = false;
-            DashboardScreen.EDITOR_STATE.errorLine = -1;
-            DashboardScreen.EDITOR_STATE.lastSentText = "";
+        lifecycle.state().editorValues.remove("script");
+        lifecycle.editors().remove("script");
+        DashboardScreen.EDITOR_STATE.selectedId = null;
+        DashboardScreen.EDITOR_STATE.pendingContent = null;
+        DashboardScreen.EDITOR_STATE.isLoading = false;
+        DashboardScreen.EDITOR_STATE.errorLine = -1;
+        DashboardScreen.EDITOR_STATE.lastSentText = "";
+        if (getSelectedId() != null) {
+            lifecycle.state().savedScriptId = getSelectedId();
+            DashboardScreen.EDITOR_STATE.selectedId = getSelectedId();
+            DashboardScreen.EDITOR_STATE.isLoading = true;
+            IScriptNetwork.sendToServer(new ServerCommandPacket(ServerCommandPacket.Type.REQUEST_SCRIPT_CONTENT, ServerCommandPacket.requestScriptToTag(getSelectedId())));
         }
         super.init();
         lifecycle.state().saveDebounce = 0;
@@ -117,7 +123,16 @@ public class Script extends ListSubScreen {
             counter++;
             newId = baseId + "_" + counter;
         }
-        IScriptNetwork.sendToServer(new ServerCommandPacket(ServerCommandPacket.Type.REQUEST_SCRIPT_CONTENT, ServerCommandPacket.requestScriptToTag(id)));
+        String jsText = null;
+        MultiLineEditBox scriptBox = lifecycle.editors().multi("script");
+        if (id.equals(DashboardScreen.EDITOR_STATE.selectedId) && scriptBox != null) {
+            jsText = scriptBox.getValue();
+        }
+        if (jsText == null || jsText.isEmpty()) {
+            jsText = ScriptGraphManager.getClientJsCache(id);
+        }
+        if (jsText == null) jsText = "";
+        IScriptNetwork.sendToServer(new ServerCommandPacket(ServerCommandPacket.Type.SAVE_SCRIPT_TEXT, ServerCommandPacket.saveScriptTextToTag(newId, jsText)));
         IScriptNetwork.sendToServer(new ServerCommandPacket(ServerCommandPacket.Type.REQUEST_SCRIPT_GRAPHS, new CompoundTag()));
         switchToScript(newId);
     }
@@ -138,7 +153,16 @@ public class Script extends ListSubScreen {
             newId = baseId + "_" + counter;
             counter++;
         }
-        IScriptNetwork.sendToServer(new ServerCommandPacket(ServerCommandPacket.Type.REQUEST_SCRIPT_CONTENT, ServerCommandPacket.requestScriptToTag(sourceId)));
+        String jsText = null;
+        MultiLineEditBox scriptBox = lifecycle.editors().multi("script");
+        if (sourceId.equals(DashboardScreen.EDITOR_STATE.selectedId) && scriptBox != null) {
+            jsText = scriptBox.getValue();
+        }
+        if (jsText == null || jsText.isEmpty()) {
+            jsText = ScriptGraphManager.getClientJsCache(sourceId);
+        }
+        if (jsText == null) jsText = "";
+        IScriptNetwork.sendToServer(new ServerCommandPacket(ServerCommandPacket.Type.SAVE_SCRIPT_TEXT, ServerCommandPacket.saveScriptTextToTag(newId, jsText)));
         IScriptNetwork.sendToServer(new ServerCommandPacket(ServerCommandPacket.Type.REQUEST_SCRIPT_GRAPHS, new CompoundTag()));
         switchToScript(newId);
     }
@@ -190,6 +214,7 @@ public class Script extends ListSubScreen {
         lifecycle.save().status("", 0);
         lifecycle.state().lastEditText = null;
         lifecycle.editors().remove("script");
+        lifecycle.state().savedScriptId = newId;
         IScriptNetwork.sendToServer(new ServerCommandPacket(ServerCommandPacket.Type.REQUEST_SCRIPT_CONTENT, ServerCommandPacket.requestScriptToTag(newId)));
     }
 
@@ -208,6 +233,17 @@ public class Script extends ListSubScreen {
     }
 
     @Override
+    public void render(GuiGraphics g, int mx, int my, float pt, int x, int y, int w, int h) {
+        MultiLineEditBox box = lifecycle.editors().multi("script");
+        if (box != null) {
+            if (lifecycle.modals().isOpen("prompt") || lifecycle.modals().isOpen("confirm")) {
+                box.setVisible(false);
+                box.setFocused(false);
+            }
+        }
+        super.render(g, mx, my, pt, x, y, w, h);
+    }
+
     protected void renderToolbar(GuiGraphics g, int mx, int my, float pt, int x, int y, int w, int h) {
         if (w <= 0) return;
         g.fill(x, y, x + w, y + h, Theme.BG_PANEL);
@@ -218,11 +254,7 @@ public class Script extends ListSubScreen {
         g.fill(x + 4, btnY, x + w - 4, btnY + btnSize, runHovered ? Theme.BG_HOVER : Theme.BG_INNER);
         g.renderOutline(x + 4, btnY, w - 8, btnSize, Theme.BORDER);
         g.drawCenteredString(this.font, "\u25B6", x + w / 2, btnY + (btnSize - 8) / 2, runHovered ? Theme.ACCENT : 0xFF44AA44);
-        btnY += btnSize + 6;
-        boolean addHovered = mx >= x + 4 && mx <= x + w - 4 && my >= btnY && my <= btnY + btnSize;
-        g.fill(x + 4, btnY, x + w - 4, btnY + btnSize, addHovered ? Theme.BG_HOVER : Theme.BG_INNER);
-        g.renderOutline(x + 4, btnY, w - 8, btnSize, Theme.BORDER);
-        g.drawCenteredString(this.font, "+", x + w / 2, btnY + (btnSize - 8) / 2, addHovered ? Theme.TEXT : Theme.TEXT_DIM);
+
     }
 
     @Override
@@ -238,11 +270,7 @@ public class Script extends ListSubScreen {
             runScript();
             return true;
         }
-        btnY += btnSize + 6;
-        if (mx >= toolbarX + 4 && mx <= toolbarX + getToolbarWidth() - 4 && my >= btnY && my <= btnY + btnSize) {
-            openPromptDialog("create", null);
-            return true;
-        }
+
         return false;
     }
 
@@ -261,23 +289,18 @@ public class Script extends ListSubScreen {
                             lifecycle.save().debounce(40);
                             lifecycle.save().status("", 0);
                         });
+                        if (DashboardScreen.EDITOR_STATE.selectedId != null && DashboardScreen.EDITOR_STATE.selectedId.equals(lifecycle.state().savedScriptId)) {
+                            scriptBox.setCursorPos(lifecycle.state().savedCursorPos);
+                            scriptBox.setScrollOffset(lifecycle.state().savedScrollOffset);
+                            scriptBox.setHorizontalScrollOffset(lifecycle.state().savedHorizontalScrollOffset);
+                            scriptBox.setSelectStart(lifecycle.state().savedSelectStart);
+                            lifecycle.state().savedScriptId = null;
+                        }
                     }
                 }
                 DashboardScreen.EDITOR_STATE.lastSentText = DashboardScreen.EDITOR_STATE.pendingContent;
                 DashboardScreen.EDITOR_STATE.pendingContent = null;
                 DashboardScreen.EDITOR_STATE.isLoading = false;
-            } else if (!loading && ScriptGraphManager.hasClientJsCache(selId)) {
-                String text = ScriptGraphManager.getClientJsCache(selId);
-                if (this.minecraft != null) {
-                    scriptBox = lifecycle.editors().addMultiBox("script", x, y, w, h, net.minecraft.network.chat.Component.literal(I18n.s("iscript.script.editor.title")), text);
-                    if (scriptBox != null) {
-                        scriptBox.setOnValueChanged(() -> {
-                            lifecycle.save().debounce(40);
-                            lifecycle.save().status("", 0);
-                        });
-                    }
-                }
-                DashboardScreen.EDITOR_STATE.lastSentText = text;
             } else if (loading) {
                 g.drawCenteredString(this.font, I18n.s("iscript.script.editor.loading"), x + w / 2, y + h / 2, Theme.TEXT_MUTE);
                 return;
@@ -362,6 +385,7 @@ public class Script extends ListSubScreen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (lifecycle.keyPressed(keyCode, scanCode, modifiers)) return true;
         if (super.keyPressed(keyCode, scanCode, modifiers)) return true;
         MultiLineEditBox scriptBox = lifecycle.editors().multi("script");
         if (scriptBox != null && scriptBox.isFocused()) {

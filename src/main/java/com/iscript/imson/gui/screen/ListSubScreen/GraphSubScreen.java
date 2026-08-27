@@ -47,10 +47,6 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
     protected double dragStartMouseX, dragStartMouseY;
     protected int dragStartNodeX, dragStartNodeY;
 
-    protected boolean showContextMenu = false;
-    protected int contextMenuX, contextMenuY;
-    protected String contextMenuNodeId = null;
-
     protected boolean showConnectionContextMenu = false;
     protected int connectionContextMenuX, connectionContextMenuY;
     protected String connectionContextFromId = null;
@@ -58,9 +54,7 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
     protected String connectionContextToId = null;
 
     protected ContextMenu contextMenu = new ContextMenu();
-
-    protected boolean showNodeTypeMenu = false;
-    protected int nodeTypeMenuX, nodeTypeMenuY;
+    protected String rightClickNodeId = null;
 
     protected Node editingNode = null;
 
@@ -118,10 +112,10 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
 
     @Override
     public void init() {
-        showContextMenu = false;
         showConnectionContextMenu = false;
-        showNodeTypeMenu = false;
         hoveredConnectionFromId = null;
+        rightClickNodeId = null;
+        contextMenu.close();
 
         String editingNodeId = life.state().modalFieldValues.get("editingNodeId");
         if (editingNodeId != null && currentGraph != null) {
@@ -304,9 +298,8 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
         selectedNodeId = null;
         draggingNodeId = null;
         cancelConnection();
-        showContextMenu = false;
-        showNodeTypeMenu = false;
         showConnectionContextMenu = false;
+        rightClickNodeId = null;
         closeNodeEditor();
         currentGraph = clientCache.get(id);
         if (currentGraph == null) {
@@ -441,6 +434,7 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
         if (life.selection().get() != null) {
             life.canvas().saveFor(life.selection().get());
         }
+        contextMenu.close();
         life.removed();
         commandStack.clear();
         super.removed();
@@ -689,6 +683,7 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
         int leftY = y + 4;
 
         if (!life.modals().isOpen("name") && !life.modals().isOpen("nodeEditor") && !life.modals().isOpen("confirm")) {
+            life.search().setVisible(true);
             graphics.fill(x, y, x + w, y + h, Theme.BG_INNER);
             graphics.fill(toolbarX, y, rightX, y + h, Theme.BG_PANEL);
             graphics.renderOutline(toolbarX, y, TOOLBAR_WIDTH, h, Theme.BG_HOVER);
@@ -734,7 +729,6 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
             if (life.selection().get() != null && currentGraph != null) {
                 graphics.fill(leftX - 2, leftY - 2, leftX + leftW + 2, leftY + leftH + 2, Theme.BG_INNER);
                 graphics.renderOutline(leftX - 2, leftY - 2, leftW + 4, leftH + 4, Theme.BORDER);
-                // updateHoveredConnection(mouseX, mouseY, leftX, leftY);
                 RenderSystem.enableScissor(leftX * (int) this.minecraft.getWindow().getGuiScale(), (this.minecraft.getWindow().getGuiScaledHeight() - leftY - leftH) * (int) this.minecraft.getWindow().getGuiScale(), leftW * (int) this.minecraft.getWindow().getGuiScale(), leftH * (int) this.minecraft.getWindow().getGuiScale());
                 renderGrid(graphics, leftX, leftY, leftW, leftH);
                 for (Node node : currentGraph.getNodes().values()) {
@@ -769,6 +763,7 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
                 graphics.drawCenteredString(this.font, useI18nForList() ? I18n.s(getListEmptyKey()) : Component.translatable(getListEmptyKey()).getString(), leftX + leftW / 2, y + h / 2, Theme.TEXT_MUTE);
             }
         } else {
+            life.search().setVisible(false);
             graphics.fill(x, y, x + w, y + h, Theme.BG_INNER);
         }
 
@@ -847,36 +842,6 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
             }
         }
 
-        if (showContextMenu && contextMenuNodeId != null) {
-            Node ctxNode = currentGraph != null ? currentGraph.getNode(contextMenuNodeId) : null;
-            boolean hasFollow = ctxNode != null && hasFollowJump(ctxNode);
-            int wctx = 100;
-            int hctx = hasFollow ? 110 : 88;
-            UI.panel(graphics, contextMenuX, contextMenuY, wctx, hctx);
-            int cy = contextMenuY + 2;
-            boolean h1 = mouseX >= contextMenuX && mouseX <= contextMenuX + wctx && mouseY >= cy && mouseY <= cy + 20;
-            UI.row(graphics, contextMenuX + 1, cy, wctx - 2, 20, false, h1);
-            graphics.drawString(font, useI18nForList() ? I18n.s(getNodeEditKey()) : Component.translatable(getNodeEditKey()).getString(), contextMenuX + 4, cy + 6, h1 ? Theme.TEXT : Theme.TEXT_DIM);
-            cy += 22;
-            boolean h2 = mouseX >= contextMenuX && mouseX <= contextMenuX + wctx && mouseY >= cy && mouseY <= cy + 20;
-            UI.row(graphics, contextMenuX + 1, cy, wctx - 2, 20, false, h2);
-            graphics.drawString(font, useI18nForList() ? I18n.s(getNodeSetStartKey()) : Component.translatable(getNodeSetStartKey()).getString(), contextMenuX + 4, cy + 6, h2 ? Theme.TEXT : Theme.TEXT_DIM);
-            cy += 22;
-            if (hasFollow) {
-                boolean hJump = mouseX >= contextMenuX && mouseX <= contextMenuX + wctx && mouseY >= cy && mouseY <= cy + 20;
-                UI.row(graphics, contextMenuX + 1, cy, wctx - 2, 20, false, hJump);
-                graphics.drawString(font, useI18nForList() ? I18n.s("iscript.dialog.node.follow_jump") : Component.translatable("iscript.dialog.node.follow_jump").getString(), contextMenuX + 4, cy + 6, hJump ? Theme.ACCENT : Theme.TEXT_DIM);
-                cy += 22;
-            }
-            boolean h3 = mouseX >= contextMenuX && mouseX <= contextMenuX + wctx && mouseY >= cy && mouseY <= cy + 20;
-            UI.row(graphics, contextMenuX + 1, cy, wctx - 2, 20, false, h3);
-            graphics.drawString(font, useI18nForList() ? I18n.s(getNodeClearConnectionsKey()) : Component.translatable(getNodeClearConnectionsKey()).getString(), contextMenuX + 4, cy + 6, h3 ? Theme.ERROR : Theme.TEXT_DIM);
-            cy += 22;
-            boolean h4 = mouseX >= contextMenuX && mouseX <= contextMenuX + wctx && mouseY >= cy && mouseY <= cy + 20;
-            UI.row(graphics, contextMenuX + 1, cy, wctx - 2, 20, false, h4);
-            graphics.drawString(font, useI18nForList() ? I18n.s(getNodeDeleteKey()) : Component.translatable(getNodeDeleteKey()).getString(), contextMenuX + 4, cy + 6, h4 ? Theme.ERROR : Theme.TEXT_DIM);
-        }
-
         if (showConnectionContextMenu && connectionContextFromId != null) {
             int wctx = 100;
             int hctx = 24;
@@ -886,26 +851,8 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
             graphics.drawString(font, useI18nForList() ? I18n.s(getConnectionDeleteKey()) : Component.translatable(getConnectionDeleteKey()).getString(), connectionContextMenuX + 4, connectionContextMenuY + 6, h1 ? Theme.ERROR : Theme.TEXT_DIM);
         }
 
-        if (showNodeTypeMenu) {
-            renderNodeTypeMenu(graphics, mouseX, mouseY);
-        }
-
         if (contextMenu.isOpen()) {
             contextMenu.render(graphics, this.font, mouseX, mouseY);
-        }
-    }
-
-    protected void renderNodeTypeMenu(GuiGraphics graphics, int mouseX, int mouseY) {
-        List<NodeType> types = getNodeTypes();
-        int w = 110;
-        int h = types.size() * 22 + 4;
-        UI.panel(graphics, nodeTypeMenuX, nodeTypeMenuY, w, h);
-        int cy = nodeTypeMenuY + 2;
-        for (NodeType type : types) {
-            boolean hovered = mouseX >= nodeTypeMenuX && mouseX <= nodeTypeMenuX + w && mouseY >= cy && mouseY <= cy + 20;
-            UI.row(graphics, nodeTypeMenuX + 1, cy, w - 2, 20, false, hovered);
-            graphics.drawString(font, useI18nForList() ? I18n.s(getNodeTypeKey(type.id)) : Component.translatable(getNodeTypeKey(type.id)).getString(), nodeTypeMenuX + 6, cy + 6, hovered ? Theme.TEXT : Theme.TEXT_DIM);
-            cy += 22;
         }
     }
 
@@ -1017,94 +964,53 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
             return true;
         }
 
-        if (showContextMenu) {
-            int y = contextMenuY + 2;
-            if (mouseX >= contextMenuX && mouseX <= contextMenuX + 100) {
-                if (mouseY >= y && mouseY <= y + 20) {
-                    Node node = currentGraph != null ? currentGraph.getNode(contextMenuNodeId) : null;
-                    if (node != null) openNodeEditor(node);
-                    showContextMenu = false;
-                    return true;
-                }
-                y += 22;
-                if (mouseY >= y && mouseY <= y + 20) {
-                    if (currentGraph != null) {
-                        String oldStart = currentGraph.getStartNodeId();
-                        commandStack.execute(new NodeCommands.SetStartNodeCommand(currentGraph, oldStart, contextMenuNodeId));
-                        save();
-                    }
-                    showContextMenu = false;
-                    return true;
-                }
-                y += 22;
-                Node ctxNode = currentGraph != null ? currentGraph.getNode(contextMenuNodeId) : null;
-                if (ctxNode != null && hasFollowJump(ctxNode)) {
-                    if (mouseY >= y && mouseY <= y + 20) {
-                        executeFollowJump(ctxNode);
-                        showContextMenu = false;
-                        return true;
-                    }
-                    y += 22;
-                }
-                if (mouseY >= y && mouseY <= y + 20) {
-                    if (currentGraph != null) {
-                        Node node = currentGraph.getNode(contextMenuNodeId);
-                        if (node != null) {
-                            for (Node.Connection c : new ArrayList<>(node.getConnections())) {
-                                commandStack.execute(new NodeCommands.DisconnectNodesCommand(currentGraph, node, c));
-                            }
-                            for (Node n : currentGraph.getNodes().values()) {
-                                for (Node.Connection c : new ArrayList<>(n.getConnections())) {
-                                    if (c.getTarget().equals(contextMenuNodeId)) {
-                                        commandStack.execute(new NodeCommands.DisconnectNodesCommand(currentGraph, n, c));
-                                    }
-                                }
-                            }
-                            save();
-                        }
-                    }
-                    showContextMenu = false;
-                    return true;
-                }
-                y += 22;
-                if (mouseY >= y && mouseY <= y + 20) {
-                    deleteNode(contextMenuNodeId);
-                    showContextMenu = false;
-                    return true;
-                }
-            }
-            showContextMenu = false;
-            return true;
-        }
-
         if (contextMenu.isOpen()) {
             String itemId = contextMenu.getItemId();
             contextMenu.mouseClicked(mouseX, mouseY, button);
             String action = contextMenu.getLastAction();
-            if (action != null && itemId != null) {
-                switch (action) {
-                    case "Copy" -> copyItem(itemId);
-                    case "Paste" -> pasteItem();
-                    case "Rename" -> openNameDialog("rename", itemId);
-                    case "Duplicate" -> duplicateItem(itemId);
-                    case "Delete" -> openConfirmDialog("delete", itemId);
+            rightClickNodeId = null;
+            if (action != null) {
+                NodeType nt = getNodeTypeFor(action);
+                if (nt != null) {
+                    addNode(action);
+                } else if (itemId != null) {
+                    boolean isNode = currentGraph != null && currentGraph.getNode(itemId) != null;
+                    if (isNode) {
+                        Node node = currentGraph.getNode(itemId);
+                        switch (action) {
+                            case "Edit" -> openNodeEditor(node);
+                            case "SetStart" -> {
+                                String oldStart = currentGraph.getStartNodeId();
+                                commandStack.execute(new NodeCommands.SetStartNodeCommand(currentGraph, oldStart, itemId));
+                                save();
+                            }
+                            case "FollowJump" -> executeFollowJump(node);
+                            case "ClearConnections" -> {
+                                for (Node.Connection c : new ArrayList<>(node.getConnections())) {
+                                    commandStack.execute(new NodeCommands.DisconnectNodesCommand(currentGraph, node, c));
+                                }
+                                for (Node n : currentGraph.getNodes().values()) {
+                                    for (Node.Connection c : new ArrayList<>(n.getConnections())) {
+                                        if (c.getTarget().equals(itemId)) {
+                                            commandStack.execute(new NodeCommands.DisconnectNodesCommand(currentGraph, n, c));
+                                        }
+                                    }
+                                }
+                                save();
+                            }
+                            case "Delete" -> deleteNode(itemId);
+                        }
+                    } else {
+                        switch (action) {
+                            case "Copy" -> copyItem(itemId);
+                            case "Paste" -> pasteItem();
+                            case "Rename" -> openNameDialog("rename", itemId);
+                            case "Duplicate" -> duplicateItem(itemId);
+                            case "Delete" -> openConfirmDialog("delete", itemId);
+                        }
+                    }
                 }
             }
-            contextMenu.close();
-            return true;
-        }
-
-        if (showNodeTypeMenu) {
-            List<NodeType> types = getNodeTypes();
-            int w = 110;
-            int h = types.size() * 22 + 4;
-            if (mouseX >= nodeTypeMenuX && mouseX <= nodeTypeMenuX + w && mouseY >= nodeTypeMenuY && mouseY <= nodeTypeMenuY + h) {
-                int idx = (int) ((mouseY - nodeTypeMenuY - 2) / 22);
-                if (idx >= 0 && idx < types.size()) {
-                    addNode(types.get(idx).id);
-                }
-            }
-            showNodeTypeMenu = false;
             return true;
         }
 
@@ -1127,9 +1033,15 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
 
         if (currentGraph != null) {
             if (mouseX >= toolbarX + 4 && mouseX <= toolbarX + TOOLBAR_WIDTH - 4 && mouseY >= btnY && mouseY <= btnY + btnSize) {
-                showNodeTypeMenu = true;
-                nodeTypeMenuX = (int) mouseX;
-                nodeTypeMenuY = (int) mouseY;
+                List<String> actions = new ArrayList<>();
+                Map<String, String> labels = new HashMap<>();
+                for (NodeType type : getNodeTypes()) {
+                    actions.add(type.id);
+                    labels.put(type.id, useI18nForList() ? I18n.s(getNodeTypeKey(type.id)) : Component.translatable(getNodeTypeKey(type.id)).getString());
+                }
+                contextMenu.setCustomActions(actions.toArray(new String[0]));
+                contextMenu.setLabelOverrides(labels);
+                contextMenu.open((int) mouseX, (int) mouseY, "", false);
                 return true;
             }
         }
@@ -1233,7 +1145,6 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
                         return true;
                     }
                 }
-                // Left-click connection deletion removed — use right-click context menu instead
                 if (connectingFromId != null) {
                     cancelConnection();
                     return true;
@@ -1246,10 +1157,7 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
                     int nw = getNodeWidth();
                     int nh = getNodeHeight();
                     if (mouseX >= nx && mouseX <= nx + nw && mouseY >= ny && mouseY <= ny + nh) {
-                        showContextMenu = true;
-                        contextMenuNodeId = node.getId();
-                        contextMenuX = (int) mouseX;
-                        contextMenuY = (int) mouseY;
+                        rightClickNodeId = node.getId();
                         return true;
                     }
                 }
@@ -1266,6 +1174,7 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
                         int x2 = worldToScreenX(target.getX(), leftX);
                         int y2 = worldToScreenY(target.getY(), leftY) + nh / 2;
                         if (hitTestBezier(x1, y1, x2, y2, mouseX, mouseY, 6.0)) {
+                            rightClickNodeId = null;
                             showConnectionContextMenu = true;
                             connectionContextMenuX = (int) mouseX;
                             connectionContextMenuY = (int) mouseY;
@@ -1276,6 +1185,7 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
                         }
                     }
                 }
+                rightClickNodeId = null;
                 panning = true;
                 panStartX = mouseX;
                 panStartY = mouseY;
@@ -1364,7 +1274,7 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
             }
             return true;
         }
-        if ((keyCode == 259 || keyCode == 261) && selectedNodeId != null && currentGraph != null && !life.modals().isOpen("name") && !life.modals().isOpen("nodeEditor") && !life.modals().isOpen("confirm") && !showContextMenu && !showNodeTypeMenu && !showConnectionContextMenu && !contextMenu.isOpen()) {
+        if ((keyCode == 259 || keyCode == 261) && selectedNodeId != null && currentGraph != null && !life.modals().isOpen("name") && !life.modals().isOpen("nodeEditor") && !life.modals().isOpen("confirm") && !showConnectionContextMenu && !contextMenu.isOpen()) {
             deleteNode(selectedNodeId);
             return true;
         }
@@ -1387,7 +1297,11 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        if (life.modals().isOpen("name") || life.modals().isOpen("nodeEditor") || showContextMenu || showNodeTypeMenu || showConnectionContextMenu || life.modals().isOpen("confirm") || contextMenu.isOpen()) return true;
+        if (contextMenu.isOpen()) {
+            contextMenu.mouseScrolled(delta);
+            return true;
+        }
+        if (life.modals().isOpen("name") || life.modals().isOpen("nodeEditor") || showConnectionContextMenu || life.modals().isOpen("confirm")) return true;
         int x = DashboardScreen.SIDEBAR_W;
         int y = DashboardScreen.TOPBAR_H;
         int w = this.parent.width - DashboardScreen.SIDEBAR_W;
@@ -1425,7 +1339,7 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (life.modals().isOpen("name") || life.modals().isOpen("confirm") || showContextMenu || life.modals().isOpen("nodeEditor") || showNodeTypeMenu || showConnectionContextMenu) return true;
+        if (life.modals().isOpen("name") || life.modals().isOpen("confirm") || life.modals().isOpen("nodeEditor") || showConnectionContextMenu) return true;
         if (button == 0) {
             if (draggingNodeId != null && currentGraph != null) {
                 Node node = currentGraph.getNode(draggingNodeId);
@@ -1437,15 +1351,52 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
             draggingNodeId = null;
         }
         if (button == 1) {
-            if (contextMenu.isOpen()) {
-                contextMenu.close();
-                return true;
-            }
             int x = DashboardScreen.SIDEBAR_W;
             int y = DashboardScreen.TOPBAR_H;
             int w = this.parent.width - DashboardScreen.SIDEBAR_W;
             int h = this.parent.height - DashboardScreen.TOPBAR_H;
             int rightX = x + w - RIGHT_PANEL_WIDTH;
+            int toolbarX = rightX - TOOLBAR_WIDTH;
+            int btnSize = 24;
+            int btnY = y + 8 + btnSize + 6;
+            if (currentGraph != null && mouseX >= toolbarX + 4 && mouseX <= toolbarX + TOOLBAR_WIDTH - 4 && mouseY >= btnY && mouseY <= btnY + btnSize) {
+                List<String> actions = new ArrayList<>();
+                Map<String, String> labels = new HashMap<>();
+                for (NodeType type : getNodeTypes()) {
+                    actions.add(type.id);
+                    labels.put(type.id, useI18nForList() ? I18n.s(getNodeTypeKey(type.id)) : Component.translatable(getNodeTypeKey(type.id)).getString());
+                }
+                contextMenu.setCustomActions(actions.toArray(new String[0]));
+                contextMenu.setLabelOverrides(labels);
+                contextMenu.open((int) mouseX, (int) mouseY, "", false);
+                return true;
+            }
+            if (rightClickNodeId != null && currentGraph != null) {
+                Node node = currentGraph.getNode(rightClickNodeId);
+                if (node != null) {
+                    List<String> actions = new ArrayList<>();
+                    actions.add("Edit");
+                    actions.add("SetStart");
+                    if (hasFollowJump(node)) actions.add("FollowJump");
+                    actions.add("ClearConnections");
+                    actions.add("Delete");
+                    contextMenu.setCustomActions(actions.toArray(new String[0]));
+                    Map<String, String> labels = new HashMap<>();
+                    labels.put("Edit", useI18nForList() ? I18n.s(getNodeEditKey()) : Component.translatable(getNodeEditKey()).getString());
+                    labels.put("SetStart", useI18nForList() ? I18n.s(getNodeSetStartKey()) : Component.translatable(getNodeSetStartKey()).getString());
+                    labels.put("FollowJump", useI18nForList() ? I18n.s("iscript.dialog.node.follow_jump") : Component.translatable("iscript.dialog.node.follow_jump").getString());
+                    labels.put("ClearConnections", useI18nForList() ? I18n.s(getNodeClearConnectionsKey()) : Component.translatable(getNodeClearConnectionsKey()).getString());
+                    labels.put("Delete", useI18nForList() ? I18n.s(getNodeDeleteKey()) : Component.translatable(getNodeDeleteKey()).getString());
+                    contextMenu.setLabelOverrides(labels);
+                    contextMenu.open((int) mouseX, (int) mouseY, rightClickNodeId, false);
+                }
+                rightClickNodeId = null;
+                return true;
+            }
+            if (contextMenu.isOpen()) {
+                contextMenu.close();
+                return true;
+            }
             List<String> ids = filteredIds();
             int listH = h - 68;
             int listY = y + 42;
@@ -1454,6 +1405,7 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
                 int rowY = listY + (i - life.selection().scroll()) * ITEM_HEIGHT;
                 if (mouseX >= rightX + 4 && mouseX <= x + w - 4 && mouseY >= rowY && mouseY <= rowY + ITEM_HEIGHT - 2) {
                     boolean canPaste = DashboardScreen.clipboard != null && !DashboardScreen.clipboard.isEmpty();
+                    contextMenu.clearCustom();
                     contextMenu.open((int) mouseX, (int) mouseY, ids.get(i), canPaste);
                     return true;
                 }
@@ -1461,6 +1413,7 @@ public abstract class GraphSubScreen extends DashboardScreen.SubScreen {
             if (mouseX >= rightX + 4 && mouseX <= x + w - 4 && mouseY >= listY && mouseY <= listY + listH) {
                 boolean canPaste = DashboardScreen.clipboard != null && !DashboardScreen.clipboard.isEmpty();
                 if (canPaste) {
+                    contextMenu.clearCustom();
                     contextMenu.open((int) mouseX, (int) mouseY, "", canPaste);
                 }
                 return true;

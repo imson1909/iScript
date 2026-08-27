@@ -192,7 +192,7 @@ public abstract class ListSubScreen extends DashboardScreen.SubScreen {
         g.fill(dx - 4, dy - 4, dx + dw + 4, dy + dh + 4, Theme.alpha(Theme.BG_INNER, 0.8f));
         g.fill(dx, dy, dx + dw, dy + dh, Theme.BG_INNER);
         g.renderOutline(dx, dy, dw, dh, Theme.ERROR);
-        g.drawCenteredString(this.font, "Delete \"" + confirmDialogId + "\"?", cx, dy + 8, Theme.ERROR);
+        g.drawCenteredString(this.font, String.format(I18n.s("iscript.confirm.delete"), confirmDialogId), cx, dy + 8, Theme.ERROR);
         boolean okHovered = mx >= cx - 50 && mx <= cx - 2 && my >= dy + 38 && my <= dy + 60;
         g.fill(cx - 50, dy + 38, cx - 2, dy + 60, okHovered ? Theme.BG_HOVER : Theme.BG_INNER);
         g.renderOutline(cx - 50, dy + 38, 48, 22, Theme.BORDER);

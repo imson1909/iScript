@@ -216,5 +216,11 @@ public class Cutscene extends ListSubScreen {
     protected boolean handleToolbarClick(double mx, double my, int button) { return false; }
 
     @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (lifecycle.keyPressed(keyCode, scanCode, modifiers)) return true;
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
     protected void doSave() {}
 }
