@@ -12,6 +12,8 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.EntityModel;
+import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.DynamicTexture;
@@ -19,6 +21,7 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.player.Player;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
@@ -33,10 +36,24 @@ public class MorphRenderer {
     private static final Map<String, ResourceLocation> TEXTURE_LOCATIONS = new HashMap<>();
     private static final Map<String, DynamicTexture> DYNAMIC_TEXTURES = new HashMap<>();
 
+    // ========== WORLD RENDERING (для рендера в мире) ==========
+
     public static void render(Entity entity, MorphData morphData, PoseStack poseStack,
                               MultiBufferSource buffer, int packedLight, float partialTick) {
         if (!morphData.isMorphed() || !morphData.isVisible()) return;
 
+        String modelId = morphData.getModelId();
+
+        // Проверяем, это entity модель или custom geo модель
+        if (modelId.startsWith("entity:")) {
+            renderEntityModel(entity, morphData, poseStack, buffer, packedLight, partialTick);
+        } else {
+            renderGeoModel(entity, morphData, poseStack, buffer, packedLight, partialTick);
+        }
+    }
+
+    private static void renderGeoModel(Entity entity, MorphData morphData, PoseStack poseStack,
+                                       MultiBufferSource buffer, int packedLight, float partialTick) {
         GeoModel model = MorphManager.getModel(morphData.getModelId());
         if (model == null) {
             IScriptMod.LOGGER.warn("Morph model not found: {}", morphData.getModelId());
@@ -45,73 +62,132 @@ public class MorphRenderer {
 
         ResourceLocation texture = getTextureLocation(morphData.getModelId());
         if (texture == null) {
-            IScriptMod.LOGGER.warn("Morph texture not found: {}", morphData.getModelId());
             texture = new ResourceLocation("minecraft", "textures/block/stone.png");
         }
 
         float scale = morphData.getScale();
         float time = morphData.getAnimationTick() / 20f;
-
         AnimationController controller = morphData.getAnimationController();
 
         poseStack.pushPose();
-
-        float yaw;
-        if (entity instanceof Player player) {
-            yaw = Mth.rotLerp(partialTick, player.yBodyRotO, player.yBodyRot);
-        } else {
-            yaw = Mth.rotLerp(partialTick, entity.yRotO, entity.getYRot());
-        }
-
+        float yaw = Mth.rotLerp(partialTick, entity.yRotO, entity.getYRot());
         poseStack.mulPose(Axis.YP.rotationDegrees(-yaw));
         poseStack.scale(scale, scale, scale);
 
         VertexConsumer builder = buffer.getBuffer(RenderType.entityCutoutNoCull(texture));
-
         for (Bone bone : model.getBones()) {
             if (bone.getParent().isEmpty()) {
                 renderBone(bone, model, controller, time, poseStack, builder, packedLight, OverlayTexture.NO_OVERLAY, 1.0f);
             }
         }
-
         poseStack.popPose();
     }
+
+    @SuppressWarnings("unchecked")
+    private static void renderEntityModel(Entity entity, MorphData morphData, PoseStack poseStack,
+                                          MultiBufferSource buffer, int packedLight, float partialTick) {
+        String entityTypeStr = morphData.getModelId().substring(7); // убираем "entity:"
+        try {
+            ResourceLocation rl = new ResourceLocation(entityTypeStr);
+            EntityType<?> type = EntityType.byString(rl.toString()).orElse(null);
+            if (type == null) return;
+
+            EntityModel<?> model = MorphManager.getEntityModel(type);
+            if (model == null) return;
+
+            ResourceLocation texture = MorphManager.getEntityTexture(type);
+            if (texture == null) return;
+
+            poseStack.pushPose();
+            float scale = morphData.getScale();
+            poseStack.scale(scale, scale, scale);
+
+            float yaw = Mth.rotLerp(partialTick, entity.yRotO, entity.getYRot());
+            float pitch = Mth.rotLerp(partialTick, entity.xRotO, entity.getXRot());
+
+            poseStack.mulPose(Axis.YP.rotationDegrees(180.0F - yaw));
+            poseStack.mulPose(Axis.XP.rotationDegrees(pitch));
+
+            VertexConsumer builder = buffer.getBuffer(RenderType.entityCutoutNoCull(texture));
+            model.renderToBuffer(poseStack, builder, packedLight, OverlayTexture.NO_OVERLAY, 1.0f, 1.0f, 1.0f, 1.0f);
+            poseStack.popPose();
+        } catch (Exception e) {
+            IScriptMod.LOGGER.error("Failed to render entity model: {}", entityTypeStr, e);
+        }
+    }
+
+    // ========== GUI RENDERING (для превью в GUI) ==========
+
+    public static void renderInGui(GeoModel model, PoseStack poseStack, VertexConsumer builder,
+                                   int packedLight, int packedOverlay, float alpha) {
+        if (model == null) return;
+
+        for (Bone bone : model.getBones()) {
+            if (bone.getParent().isEmpty()) {
+                renderBoneGui(bone, model, poseStack, builder, packedLight, packedOverlay, alpha);
+            }
+        }
+    }
+
+    public static void renderEntityInGui(EntityType<?> type, PoseStack poseStack, VertexConsumer builder,
+                                         int packedLight, int packedOverlay, float alpha) {
+        EntityModel<?> model = MorphManager.getEntityModel(type);
+        if (model == null) return;
+
+        ResourceLocation texture = MorphManager.getEntityTexture(type);
+        if (texture == null) return;
+
+        model.renderToBuffer(poseStack, builder, packedLight, packedOverlay, 1.0f, 1.0f, 1.0f, alpha);
+    }
+
+    // ========== HELPER METHODS ==========
 
     private static void renderBone(Bone bone, GeoModel model, AnimationController controller, float time,
                                    PoseStack poseStack, VertexConsumer builder, int packedLight, int packedOverlay, float alpha) {
         poseStack.pushPose();
-
         float[] animRot = controller.getBoneRotation(bone.getName(), time);
         float[] animPos = controller.getBonePosition(bone.getName(), time);
         float[] animScale = controller.getBoneScale(bone.getName(), time);
-
         float[] pivot = bone.getPivot();
         float[] baseRot = bone.getRotation();
 
         if (animPos[0] != 0f || animPos[1] != 0f || animPos[2] != 0f) {
             poseStack.translate(-animPos[0] / 16f, animPos[1] / 16f, animPos[2] / 16f);
         }
-
         poseStack.translate(pivot[0] / 16f, pivot[1] / 16f, pivot[2] / 16f);
-
         float rx = (float) Math.toRadians(baseRot[0] - animRot[0]);
         float ry = (float) Math.toRadians(baseRot[1] - animRot[1]);
         float rz = (float) Math.toRadians(baseRot[2] + animRot[2]);
-
         poseStack.mulPose(new Quaternionf().rotationZYX(rz, ry, rx));
-
         poseStack.scale(animScale[0], animScale[1], animScale[2]);
-
         poseStack.translate(-pivot[0] / 16f, -pivot[1] / 16f, -pivot[2] / 16f);
 
         for (Cube cube : bone.getCubes()) {
             renderCube(cube, model, poseStack, builder, packedLight, packedOverlay, alpha);
         }
-
         for (Bone child : bone.getChildren()) {
             renderBone(child, model, controller, time, poseStack, builder, packedLight, packedOverlay, alpha);
         }
+        poseStack.popPose();
+    }
 
+    public static void renderBoneGui(Bone bone, GeoModel model, PoseStack poseStack, VertexConsumer builder,
+                                     int packedLight, int packedOverlay, float alpha) {
+        poseStack.pushPose();
+        float[] pivot = bone.getPivot();
+        float[] baseRot = bone.getRotation();
+        poseStack.translate(pivot[0] / 16f, pivot[1] / 16f, pivot[2] / 16f);
+        float rx = (float) Math.toRadians(baseRot[0]);
+        float ry = (float) Math.toRadians(baseRot[1]);
+        float rz = (float) Math.toRadians(baseRot[2]);
+        poseStack.mulPose(new Quaternionf().rotationZYX(rz, ry, rx));
+        poseStack.translate(-pivot[0] / 16f, -pivot[1] / 16f, -pivot[2] / 16f);
+        for (Cube cube : bone.getCubes()) {
+            renderCube(cube, model, poseStack, builder, packedLight, packedOverlay, alpha);
+        }
+        for (Bone child : bone.getChildren()) {
+            renderBoneGui(child, model, poseStack, builder, packedLight, packedOverlay, alpha);
+        }
         poseStack.popPose();
     }
 
@@ -130,74 +206,44 @@ public class MorphRenderer {
         float d = size[2] / 16f;
         float inf = inflate / 16f;
 
-        x1 -= inf;
-        y1 -= inf;
-        z1 -= inf;
+        x1 -= inf; y1 -= inf; z1 -= inf;
         float x2i = x2 + inf;
         float y2 = y1 + h + inf * 2;
         float z2 = z1 + d + inf * 2;
 
         float texW = model.getTextureWidth();
         float texH = model.getTextureHeight();
-
         Matrix4f matrix = poseStack.last().pose();
         Vector3f normal = new Vector3f();
-
         float r = 1.0f, g = 1.0f, b = 1.0f;
 
         if (cube.hasPerFaceUv()) {
             Map<String, Cube.FaceUv> fuv = cube.getFaceUvs();
-            if (fuv.containsKey("south"))  drawFace(builder, matrix, poseStack, normal, fuv.get("south"),  texW, texH, mirror, r, g, b, alpha, packedLight, packedOverlay,
-                    x1, y2, z2,  x2i, y2, z2,  x2i, y1, z2,  x1, y1, z2,  0, 0, 1);
-            if (fuv.containsKey("north"))  drawFace(builder, matrix, poseStack, normal, fuv.get("north"),  texW, texH, mirror, r, g, b, alpha, packedLight, packedOverlay,
-                    x2i, y2, z1,  x1, y2, z1,  x1, y1, z1,  x2i, y1, z1,  0,0,-1);
-            if (fuv.containsKey("east"))   drawFace(builder, matrix, poseStack, normal, fuv.get("east"),   texW, texH, mirror, r, g, b, alpha, packedLight, packedOverlay,
-                    x2i, y2, z2,  x2i, y2, z1,  x2i, y1, z1,  x2i, y1, z2,  1,0,0);
-            if (fuv.containsKey("west"))   drawFace(builder, matrix, poseStack, normal, fuv.get("west"),   texW, texH, mirror, r, g, b, alpha, packedLight, packedOverlay,
-                    x1, y2, z1,  x1, y2, z2,  x1, y1, z2,  x1, y1, z1, -1,0,0);
-            if (fuv.containsKey("up"))     drawFace(builder, matrix, poseStack, normal, fuv.get("up"),     texW, texH, mirror, r, g, b, alpha, packedLight, packedOverlay,
-                    x1, y2, z2,  x2i, y2, z2,  x2i, y2, z1,  x1, y2, z1,  0,1,0);
-            if (fuv.containsKey("down"))   drawFace(builder, matrix, poseStack, normal, fuv.get("down"),   texW, texH, mirror, r, g, b, alpha, packedLight, packedOverlay,
-                    x1, y1, z1,  x2i, y1, z1,  x2i, y1, z2,  x1, y1, z2,  0,-1,0);
+            if (fuv.containsKey("south")) drawFace(builder, matrix, poseStack, normal, fuv.get("south"), texW, texH, mirror, r, g, b, alpha, packedLight, packedOverlay, x1, y2, z2, x2i, y2, z2, x2i, y1, z2, x1, y1, z2, 0, 0, 1);
+            if (fuv.containsKey("north")) drawFace(builder, matrix, poseStack, normal, fuv.get("north"), texW, texH, mirror, r, g, b, alpha, packedLight, packedOverlay, x2i, y2, z1, x1, y2, z1, x1, y1, z1, x2i, y1, z1, 0, 0, -1);
+            if (fuv.containsKey("east")) drawFace(builder, matrix, poseStack, normal, fuv.get("east"), texW, texH, mirror, r, g, b, alpha, packedLight, packedOverlay, x2i, y2, z2, x2i, y2, z1, x2i, y1, z1, x2i, y1, z2, 1, 0, 0);
+            if (fuv.containsKey("west")) drawFace(builder, matrix, poseStack, normal, fuv.get("west"), texW, texH, mirror, r, g, b, alpha, packedLight, packedOverlay, x1, y2, z1, x1, y2, z2, x1, y1, z2, x1, y1, z1, -1, 0, 0);
+            if (fuv.containsKey("up")) drawFace(builder, matrix, poseStack, normal, fuv.get("up"), texW, texH, mirror, r, g, b, alpha, packedLight, packedOverlay, x1, y2, z2, x2i, y2, z2, x2i, y2, z1, x1, y2, z1, 0, 1, 0);
+            if (fuv.containsKey("down")) drawFace(builder, matrix, poseStack, normal, fuv.get("down"), texW, texH, mirror, r, g, b, alpha, packedLight, packedOverlay, x1, y1, z1, x2i, y1, z1, x2i, y1, z2, x1, y1, z2, 0, -1, 0);
             return;
         }
 
         float u = cube.getUv()[0];
         float v = cube.getUv()[1];
+        float su = size[0], sh = size[1], sd = size[2];
 
-        float su = size[0];
-        float sh = size[1];
-        float sd = size[2];
-
-        float f_u1 = (u + sd) / texW;
-        float f_v1 = (v + sd) / texH;
-        float f_u2 = (u + sd + su) / texW;
-        float f_v2 = (v + sd + sh) / texH;
-
-        float b_u1 = (u + 2 * sd + su) / texW;
-        float b_v1 = (v + sd) / texH;
-        float b_u2 = (u + 2 * sd + 2 * su) / texW;
-        float b_v2 = (v + sd + sh) / texH;
-
-        float l_u1 = u / texW;
-        float l_v1 = (v + sd) / texH;
-        float l_u2 = (u + sd) / texW;
-        float l_v2 = (v + sd + sh) / texH;
-
-        float r_u1 = (u + sd + su) / texW;
-        float r_v1 = (v + sd) / texH;
-        float r_u2 = (u + sd + su + sd) / texW;
-        float r_v2 = (v + sd + sh) / texH;
-
-        float t_u1 = (u + sd) / texW;
-        float t_v1 = v / texH;
-        float t_u2 = (u + sd + su) / texW;
-        float t_v2 = (v + sd) / texH;
-
-        float bo_u1 = (u + sd + su) / texW;
-        float bo_v1 = v / texH;
-        float bo_u2 = (u + sd + su + su) / texW;
-        float bo_v2 = (v + sd) / texH;
+        float f_u1 = (u + sd) / texW, f_v1 = (v + sd) / texH;
+        float f_u2 = (u + sd + su) / texW, f_v2 = (v + sd + sh) / texH;
+        float b_u1 = (u + 2 * sd + su) / texW, b_v1 = (v + sd) / texH;
+        float b_u2 = (u + 2 * sd + 2 * su) / texW, b_v2 = (v + sd + sh) / texH;
+        float l_u1 = u / texW, l_v1 = (v + sd) / texH;
+        float l_u2 = (u + sd) / texW, l_v2 = (v + sd + sh) / texH;
+        float r_u1 = (u + sd + su) / texW, r_v1 = (v + sd) / texH;
+        float r_u2 = (u + sd + su + sd) / texW, r_v2 = (v + sd + sh) / texH;
+        float t_u1 = (u + sd) / texW, t_v1 = v / texH;
+        float t_u2 = (u + sd + su) / texW, t_v2 = (v + sd) / texH;
+        float bo_u1 = (u + sd + su) / texW, bo_v1 = v / texH;
+        float bo_u2 = (u + sd + su + su) / texW, bo_v2 = (v + sd) / texH;
 
         if (mirror) {
             float t;
@@ -209,72 +255,35 @@ public class MorphRenderer {
             t = bo_u1; bo_u1 = bo_u2; bo_u2 = t;
         }
 
-        normal.set(0, 0, 1);
-        poseStack.last().normal().transform(normal);
-        normal.normalize();
-        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha,
-                x1, y2, z2,  x2i, y2, z2,  x2i, y1, z2,  x1, y1, z2,
-                f_u1, f_v1, f_u2, f_v2, normal);
-
-        normal.set(0, 0, -1);
-        poseStack.last().normal().transform(normal);
-        normal.normalize();
-        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha,
-                x2i, y2, z1,  x1, y2, z1,  x1, y1, z1,  x2i, y1, z1,
-                b_u1, b_v1, b_u2, b_v2, normal);
-
-        normal.set(1, 0, 0);
-        poseStack.last().normal().transform(normal);
-        normal.normalize();
-        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha,
-                x2i, y2, z2,  x2i, y2, z1,  x2i, y1, z1,  x2i, y1, z2,
-                r_u1, r_v1, r_u2, r_v2, normal);
-
-        normal.set(-1, 0, 0);
-        poseStack.last().normal().transform(normal);
-        normal.normalize();
-        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha,
-                x1, y2, z1,  x1, y2, z2,  x1, y1, z2,  x1, y1, z1,
-                l_u1, l_v1, l_u2, l_v2, normal);
-
-        normal.set(0, 1, 0);
-        poseStack.last().normal().transform(normal);
-        normal.normalize();
-        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha,
-                x1, y2, z2,  x2i, y2, z2,  x2i, y2, z1,  x1, y2, z1,
-                t_u1, t_v1, t_u2, t_v2, normal);
-
-        normal.set(0, -1, 0);
-        poseStack.last().normal().transform(normal);
-        normal.normalize();
-        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha,
-                x1, y1, z1,  x2i, y1, z1,  x2i, y1, z2,  x1, y1, z2,
-                bo_u1, bo_v1, bo_u2, bo_v2, normal);
+        normal.set(0, 0, 1); poseStack.last().normal().transform(normal); normal.normalize();
+        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x1, y2, z2, x2i, y2, z2, x2i, y1, z2, x1, y1, z2, f_u1, f_v1, f_u2, f_v2, normal);
+        normal.set(0, 0, -1); poseStack.last().normal().transform(normal); normal.normalize();
+        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x2i, y2, z1, x1, y2, z1, x1, y1, z1, x2i, y1, z1, b_u1, b_v1, b_u2, b_v2, normal);
+        normal.set(1, 0, 0); poseStack.last().normal().transform(normal); normal.normalize();
+        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x2i, y2, z2, x2i, y2, z1, x2i, y1, z1, x2i, y1, z2, r_u1, r_v1, r_u2, r_v2, normal);
+        normal.set(-1, 0, 0); poseStack.last().normal().transform(normal); normal.normalize();
+        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x1, y2, z1, x1, y2, z2, x1, y1, z2, x1, y1, z1, l_u1, l_v1, l_u2, l_v2, normal);
+        normal.set(0, 1, 0); poseStack.last().normal().transform(normal); normal.normalize();
+        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x1, y2, z2, x2i, y2, z2, x2i, y2, z1, x1, y2, z1, t_u1, t_v1, t_u2, t_v2, normal);
+        normal.set(0, -1, 0); poseStack.last().normal().transform(normal); normal.normalize();
+        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x1, y1, z1, x2i, y1, z1, x2i, y1, z2, x1, y1, z2, bo_u1, bo_v1, bo_u2, bo_v2, normal);
     }
 
-    private static void drawFace(VertexConsumer builder, Matrix4f matrix, PoseStack poseStack, Vector3f normal, Cube.FaceUv fuv,
-                                 float texW, float texH, boolean mirror,
+    private static void drawFace(VertexConsumer builder, Matrix4f matrix, PoseStack poseStack, Vector3f normal,
+                                 Cube.FaceUv fuv, float texW, float texH, boolean mirror,
                                  float r, float g, float b, float alpha, int packedLight, int packedOverlay,
-                                 float x1, float y1, float z1,
-                                 float x2, float y2, float z2,
-                                 float x3, float y3, float z3,
-                                 float x4, float y4, float z4,
+                                 float x1, float y1, float z1, float x2, float y2, float z2,
+                                 float x3, float y3, float z3, float x4, float y4, float z4,
                                  float nx, float ny, float nz) {
         float u1 = fuv.uv[0] / texW;
         float v1 = fuv.uv[1] / texH;
         float u2 = (fuv.uv[0] + fuv.uvSize[0]) / texW;
         float v2 = (fuv.uv[1] + fuv.uvSize[1]) / texH;
-
-        if (mirror) {
-            float t = u1; u1 = u2; u2 = t;
-        }
-
+        if (mirror) { float t = u1; u1 = u2; u2 = t; }
         normal.set(nx, ny, nz);
         poseStack.last().normal().transform(normal);
         normal.normalize();
-        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha,
-                x1, y1, z1, x2, y2, z2, x3, y3, z3, x4, y4, z4,
-                u1, v1, u2, v2, normal);
+        addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x1, y1, z1, x2, y2, z2, x3, y3, z3, x4, y4, z4, u1, v1, u2, v2, normal);
     }
 
     private static void addQuad(Matrix4f matrix, VertexConsumer builder, int packedLight, int packedOverlay,
@@ -304,10 +313,8 @@ public class MorphRenderer {
 
     public static ResourceLocation getTextureLocation(String modelId) {
         if (TEXTURE_LOCATIONS.containsKey(modelId)) return TEXTURE_LOCATIONS.get(modelId);
-
         BufferedImage img = MorphManager.getTexture(modelId);
         if (img == null) return null;
-
         NativeImage nativeImage = bufferedImageToNativeImage(img);
         DynamicTexture texture = new DynamicTexture(nativeImage);
         ResourceLocation loc = new ResourceLocation("iscript", "morph/" + modelId);

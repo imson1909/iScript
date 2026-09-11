@@ -1,14 +1,31 @@
 package com.iscript.imson.script.api;
 
+import com.iscript.imson.IScriptMod;
 import com.iscript.imson.data.GlobalStates;
 import com.iscript.imson.data.ModData;
 import com.iscript.imson.script.ScriptExecutionService;
 import com.iscript.imson.script.ScriptTaskScheduler;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
+import net.minecraftforge.registries.ForgeRegistries;
 import org.graalvm.polyglot.HostAccess;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class ScriptAPI {
     protected final Player player;
@@ -41,6 +58,8 @@ public class ScriptAPI {
     public final FileAPI file;
     @HostAccess.Export
     public final SchematicAPI schematic;
+    @HostAccess.Export
+    public final ScriptHUDAPI hud;
 
     public ScriptAPI(Player player, ServerLevel level, ScriptExecutionService exec, ScriptTaskScheduler scheduler, String scriptId) {
         this.player = player;
@@ -60,6 +79,7 @@ public class ScriptAPI {
         this.server = new ServerAPI(this);
         this.file = new FileAPI(this);
         this.schematic = new SchematicAPI(this);
+        this.hud = new ScriptHUDAPI();
     }
 
     @HostAccess.Export
@@ -378,7 +398,7 @@ public class ScriptAPI {
     }
 
     @HostAccess.Export
-    public java.util.List<String> getScriptIds() {
+    public List<String> getScriptIds() {
         return scriptControl.getScriptIds();
     }
 
@@ -499,6 +519,138 @@ public class ScriptAPI {
     public InventoryAPI getInventory() {
         return new InventoryAPI(player);
     }
+
+    // ========== NEW METHODS (Better than Mappet) ==========
+
+    @HostAccess.Export
+    public void broadcast(String text, String color) {
+        if (level.getServer() == null) return;
+        net.minecraft.ChatFormatting fmt = net.minecraft.ChatFormatting.WHITE;
+        try { fmt = net.minecraft.ChatFormatting.valueOf(color.toUpperCase()); } catch (Exception ignored) {}
+        for (ServerPlayer p : level.getServer().getPlayerList().getPlayers()) {
+            p.sendSystemMessage(net.minecraft.network.chat.Component.literal(text).withStyle(fmt));
+        }
+    }
+
+    @HostAccess.Export
+    public void setTime(long time) {
+        level.setDayTime(time);
+    }
+
+    @HostAccess.Export
+    public long getTime() {
+        return level.getDayTime();
+    }
+
+    @HostAccess.Export
+    public boolean isDay() {
+        return level.isDay();
+    }
+
+    @HostAccess.Export
+    public boolean isNight() {
+        return level.isNight();
+    }
+
+    @HostAccess.Export
+    public void setWeather(String type, int duration) {
+        if (type.equalsIgnoreCase("clear")) {
+            level.setWeatherParameters(duration, 0, false, false);
+        } else if (type.equalsIgnoreCase("rain")) {
+            level.setWeatherParameters(0, duration, true, false);
+        } else if (type.equalsIgnoreCase("thunder")) {
+            level.setWeatherParameters(0, duration, true, true);
+        }
+    }
+
+    @HostAccess.Export
+    public void explosion(double x, double y, double z, float power, boolean fire, boolean destroy) {
+        level.explode(null, x, y, z, power, fire,
+                destroy ? net.minecraft.world.level.Level.ExplosionInteraction.TNT : net.minecraft.world.level.Level.ExplosionInteraction.NONE);
+    }
+
+    @HostAccess.Export
+    public void spawnParticle(String particleId, double x, double y, double z, int count, double spread) {
+        try {
+            ResourceLocation id = new ResourceLocation(particleId);
+            var pType = ForgeRegistries.PARTICLE_TYPES.getValue(id);
+            if (pType instanceof net.minecraft.core.particles.SimpleParticleType simple) {
+                level.sendParticles(simple, x, y, z, count, spread, spread, spread, 0);
+            }
+        } catch (Exception e) {
+            IScriptMod.LOGGER.error("Particle failed: {}", e.getMessage());
+        }
+    }
+
+    @HostAccess.Export
+    public int getPlayerCount() {
+        return level.getServer() != null ? level.getServer().getPlayerCount() : 0;
+    }
+
+    @HostAccess.Export
+    public List<String> getOnlinePlayers() {
+        List<String> list = new ArrayList<>();
+        if (level.getServer() != null) {
+            for (ServerPlayer p : level.getServer().getPlayerList().getPlayers()) {
+                list.add(p.getGameProfile().getName());
+            }
+        }
+        return list;
+    }
+
+    @HostAccess.Export
+    public Map<String, Object> rayTraceBlocks(double reach) {
+        Vec3 eye = player.getEyePosition(1.0f);
+        Vec3 look = player.getViewVector(1.0f);
+        Vec3 end = eye.add(look.x * reach, look.y * reach, look.z * reach);
+        BlockHitResult bhr = level.clip(new ClipContext(eye, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
+        if (bhr.getType() != HitResult.Type.MISS) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("type", "block");
+            map.put("x", bhr.getBlockPos().getX());
+            map.put("y", bhr.getBlockPos().getY());
+            map.put("z", bhr.getBlockPos().getZ());
+            map.put("block", level.getBlockState(bhr.getBlockPos()).getBlock().builtInRegistryHolder().key().location().toString());
+            map.put("side", bhr.getDirection().name());
+            return map;
+        }
+        return null;
+    }
+
+    @HostAccess.Export
+    public Map<String, Object> rayTraceEntities(double reach) {
+        Vec3 eye = player.getEyePosition(1.0f);
+        Vec3 look = player.getViewVector(1.0f);
+        Vec3 end = eye.add(look.x * reach, look.y * reach, look.z * reach);
+        AABB aabb = player.getBoundingBox().expandTowards(look.scale(reach)).inflate(1.0);
+        EntityHitResult ehr = ProjectileUtil.getEntityHitResult(level, player, eye, end, aabb, e -> e.isPickable() && e != player);
+        if (ehr != null) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("type", "entity");
+            map.put("entityId", ehr.getEntity().getId());
+            map.put("entityType", BuiltInRegistries.ENTITY_TYPE.getKey(ehr.getEntity().getType()).toString());
+            map.put("x", ehr.getEntity().getX());
+            map.put("y", ehr.getEntity().getY());
+            map.put("z", ehr.getEntity().getZ());
+            return map;
+        }
+        return null;
+    }
+
+    @HostAccess.Export
+    public boolean isLookingAt(String blockId, double reach) {
+        Vec3 eye = player.getEyePosition(1.0f);
+        Vec3 look = player.getViewVector(1.0f);
+        Vec3 end = eye.add(look.x * reach, look.y * reach, look.z * reach);
+        BlockHitResult bhr = level.clip(new ClipContext(eye, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
+        if (bhr.getType() != HitResult.Type.MISS) {
+            String found = level.getBlockState(bhr.getBlockPos()).getBlock().builtInRegistryHolder().key().location().toString();
+            return found.equals(blockId);
+        }
+        return false;
+    }
+
+    // ======================================================
 
     public class States {
         @HostAccess.Export

@@ -2,6 +2,7 @@ package com.iscript.imson.client;
 
 import com.iscript.imson.IScriptMod;
 import com.iscript.imson.gui.screen.DashboardScreen;
+import com.iscript.imson.morph.gui.MorphScreen;
 import com.iscript.imson.network.IScriptNetwork;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -28,10 +29,17 @@ public class KeybindHandler {
             "key.categories.iscript"
     );
 
+    public static final KeyMapping OPEN_MORPH_SCREEN = new KeyMapping(
+            "key.iscript.morph",
+            GLFW.GLFW_KEY_B,
+            "key.categories.iscript"
+    );
+
     @SubscribeEvent
     public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
         event.register(OPEN_DASHBOARD);
         event.register(OPEN_CUTSCENE_EDITOR);
+        event.register(OPEN_MORPH_SCREEN);
     }
 
     @Mod.EventBusSubscriber(modid = IScriptMod.MOD_ID, value = Dist.CLIENT)
@@ -39,16 +47,17 @@ public class KeybindHandler {
         @SubscribeEvent
         public static void onClientTick(TickEvent.ClientTickEvent event) {
             if (event.phase != TickEvent.Phase.END) return;
-
             Minecraft mc = Minecraft.getInstance();
             if (mc.player == null || mc.screen != null) return;
 
             if (OPEN_DASHBOARD.consumeClick()) {
                 mc.setScreen(new DashboardScreen());
             }
-
             if (OPEN_CUTSCENE_EDITOR.consumeClick()) {
                 IScriptNetwork.sendToServer(new ServerCommandPacket(ServerCommandPacket.Type.REQUEST_CUTSCENES, new CompoundTag()));
+            }
+            if (OPEN_MORPH_SCREEN.consumeClick()) {
+                mc.setScreen(new MorphScreen(mc.player));
             }
         }
     }

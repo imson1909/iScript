@@ -616,5 +616,21 @@
   "iscript.event.node.type.set_faction": "Установить фракцию",
   "iscript.event.node.type.set_reputation": "Установить репутацию",
   "iscript.event.node.type.world_set": "Установить мир",
-  "iscript.event.node.type.script_js": "Скрипт JS"
+  "iscript.event.node.type.script_js": "Скрипт JS",
+  "iscript.morph.title": "Выбор морфа",
+  "iscript.morph.search": "Поиск морфов...",
+  "iscript.morph.categories": "Категории",
+  "iscript.morph.category.all": "Все",
+  "iscript.morph.category.custom": "Пользовательские",
+  "iscript.morph.no_model": "Модель не выбрана",
+  "iscript.morph.model_not_found": "Модель не найдена",
+  "iscript.morph.scale": "Масштаб",
+  "iscript.morph.animation": "Название анимации",
+  "iscript.morph.visible": "Видимость",
+  "iscript.morph.visible.on": "Видимо: ВКЛ",
+  "iscript.morph.visible.off": "Видимо: ВЫКЛ",
+  "iscript.morph.acquire": "Применить",
+  "iscript.morph.edit": "Редактировать",
+  "iscript.morph.close": "Закрыть",
+  "iscript.morph.rotate_hint": "Вращение: X/Y/Z"
 }

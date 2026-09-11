@@ -20,7 +20,6 @@ public class MultiLineEditBox extends AbstractWidget {
     private int selectStart = -1;
     private int scrollOffset = 0;
     private int horizontalScrollOffset = 0;
-    private final int maxLength;
     private final List<String> lines = new ArrayList<>();
     private Runnable onValueChanged = null;
     private boolean draggingScroll = false;
@@ -39,7 +38,6 @@ public class MultiLineEditBox extends AbstractWidget {
     public MultiLineEditBox(Font font, int x, int y, int width, int height, Component title, Component hint) {
         super(x, y, width, height, title);
         this.font = font;
-        this.maxLength = 8192;
     }
 
     public void setOnValueChanged(Runnable callback) {
@@ -47,7 +45,7 @@ public class MultiLineEditBox extends AbstractWidget {
     }
 
     public void setValue(String text) {
-        this.value = text != null ? (text.length() > maxLength ? text.substring(0, maxLength) : text) : "";
+        this.value = text != null ? text : "";
         this.cursorPos = this.value.length();
         this.selectStart = -1;
         this.horizontalScrollOffset = 0;
@@ -375,7 +373,6 @@ public class MultiLineEditBox extends AbstractWidget {
             deleteSelection();
             String clipboard = net.minecraft.client.Minecraft.getInstance().keyboardHandler.getClipboard();
             for (char c : clipboard.toCharArray()) {
-                if (value.length() >= maxLength) break;
                 if (isValidChar(c)) insertChar(c);
             }
             return true;
@@ -479,11 +476,9 @@ public class MultiLineEditBox extends AbstractWidget {
             cursorPos = getLineStart(li) + lines.get(li).length(); ensureCursorVisible(); return true;
         }
         if (keyCode == GLFW.GLFW_KEY_TAB) {
-            if (value.length() + 4 > maxLength) return true;
             undo.push(value, cursorPos, selectStart);
             deleteSelection();
             for (int i = 0; i < 4; i++) {
-                if (value.length() >= maxLength) break;
                 cursorPos = Math.max(0, Math.min(cursorPos, value.length()));
                 value = value.substring(0, cursorPos) + ' ' + value.substring(cursorPos);
                 cursorPos++;
@@ -628,7 +623,6 @@ public class MultiLineEditBox extends AbstractWidget {
     }
 
     private void insertChar(char c) {
-        if (value.length() >= maxLength) return;
         undo.push(value, cursorPos, selectStart);
         cursorPos = Math.max(0, Math.min(cursorPos, value.length()));
         value = value.substring(0, cursorPos) + c + value.substring(cursorPos);

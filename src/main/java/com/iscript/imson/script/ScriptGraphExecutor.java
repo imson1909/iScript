@@ -27,17 +27,28 @@ import net.minecraft.nbt.CompoundTag;
 
 import java.util.*;
 
+/**
+ * Полностью итеративный executor графов.
+ * Устранена рекурсия — теперь можно делать глубокие цепочки и LOOP без StackOverflow.
+ * Добавлены: локальные переменные, стек вызовов, inline JS в SCRIPT_JS нодах.
+ */
 public class ScriptGraphExecutor {
     private final Graph graph;
     private final ServerPlayer player;
     private final ServerLevel level;
     private final Map<String, Object> localVars = new HashMap<>();
-    private Node currentNode;
+    private final Deque<Frame> stack = new ArrayDeque<>();
     private int delayTicks = 0;
     private boolean running = false;
     private boolean waitingForDialog = false;
     private String dialogChoice = "";
     private static final Map<UUID, ScriptGraphExecutor> activeExecutors = new HashMap<>();
+
+    private static class Frame {
+        Node node;
+        int loopCounter = 0;
+        Frame(Node node) { this.node = node; }
+    }
 
     public ScriptGraphExecutor(Graph graph, ServerPlayer player, ServerLevel level) {
         this.graph = graph;
@@ -50,24 +61,24 @@ public class ScriptGraphExecutor {
             IScriptMod.LOGGER.warn("Script graph {} has no start node", graph.getId());
             return;
         }
-        currentNode = graph.getNode(graph.getStartNodeId());
-        if (currentNode == null) {
+        Node start = graph.getNode(graph.getStartNodeId());
+        if (start == null) {
             IScriptMod.LOGGER.warn("Start node not found in graph {}", graph.getId());
             return;
         }
         running = true;
         activeExecutors.put(player.getUUID(), this);
+        stack.push(new Frame(start));
         executeCurrent();
     }
 
-    public static void stopFor(Player player) {
-        stopFor(player.getUUID());
-    }
+    public static void stopFor(Player player) { stopFor(player.getUUID()); }
 
     public static void stopFor(UUID playerId) {
         ScriptGraphExecutor exec = activeExecutors.remove(playerId);
         if (exec != null) {
             exec.running = false;
+            exec.stack.clear();
             IScriptNetwork.sendToPlayer(new ClientEffectPacket(ClientEffectPacket.Type.UNFREEZE_PLAYER, new CompoundTag()), exec.player);
             IScriptNetwork.sendToPlayer(new ClientEffectPacket(ClientEffectPacket.Type.CAMERA_RESET, new CompoundTag()), exec.player);
         }
@@ -85,92 +96,136 @@ public class ScriptGraphExecutor {
     }
 
     public void tick() {
-        if (!running || currentNode == null) return;
+        if (!running) return;
         if (waitingForDialog) return;
         if (delayTicks > 0) {
             delayTicks--;
             return;
         }
-        advance();
+        // Итеративно выполняем, пока есть ноды и нет задержек
+        int steps = 0;
+        while (running && !waitingForDialog && delayTicks == 0 && !stack.isEmpty() && steps < 1000) {
+            steps++;
+            executeCurrent();
+        }
+        if (steps >= 1000) {
+            IScriptMod.LOGGER.warn("Script graph {} exceeded max steps per tick, stopping", graph.getId());
+            finish();
+        }
+        if (stack.isEmpty()) {
+            finish();
+        }
     }
 
     private void executeCurrent() {
-        if (currentNode == null) {
+        if (stack.isEmpty()) {
             finish();
             return;
         }
-        executeNode(currentNode);
-        if (getNodeType(currentNode) == ScriptNodeType.DELAY) {
+        Frame frame = stack.peek();
+        Node node = frame.node;
+        if (node == null) {
+            stack.pop();
+            return;
+        }
+        executeNode(node);
+        ScriptNodeType type = getNodeType(node);
+
+        if (type == ScriptNodeType.DELAY) {
             try {
-                delayTicks = Integer.parseInt(currentNode.getParam("ticks"));
+                delayTicks = Integer.parseInt(node.getParam("ticks"));
             } catch (NumberFormatException e) {
                 delayTicks = 20;
             }
+            // Не убираем из стека — следующий tick продолжит
+            return;
         }
+
+        if (type == ScriptNodeType.STOP) {
+            stack.clear();
+            return;
+        }
+
+        // Определяем следующую ноду
+        Node next = resolveNext(node, frame);
+        if (next != null) {
+            frame.node = next; // Заменяем текущий фрейм
+            if (type == ScriptNodeType.LOOP) {
+                // LOOP создаёт новый фрейм для body, а done выходит
+                // Но в нашей модели LOOP — это одна нода с 2 выходами
+                // body (slot 0) и done (slot 1)
+                // Мы уже выбрали направление в resolveNext
+            }
+        } else {
+            stack.pop(); // Конец ветки
+        }
+    }
+
+    private Node resolveNext(Node node, Frame frame) {
+        ScriptNodeType type = getNodeType(node);
+        List<Node.Connection> conns = node.getConnections();
+
+        if (type == ScriptNodeType.IF) {
+            boolean condition = evaluateCondition(node);
+            for (Node.Connection c : conns) {
+                if (condition && "true".equalsIgnoreCase(c.getConditionValue())) {
+                    return graph.getNode(c.getTarget());
+                }
+                if (!condition && "false".equalsIgnoreCase(c.getConditionValue())) {
+                    return graph.getNode(c.getTarget());
+                }
+            }
+            return null;
+        }
+
+        if (type == ScriptNodeType.RANDOM) {
+            if (!conns.isEmpty()) {
+                return graph.getNode(conns.get(level.getRandom().nextInt(conns.size())).getTarget());
+            }
+            return null;
+        }
+
+        if (type == ScriptNodeType.LOOP) {
+            frame.loopCounter++;
+            int targetCount = 3;
+            try { targetCount = Integer.parseInt(node.getParam("count")); } catch (Exception ignored) {}
+            // slot 0 = body, slot 1 = done
+            if (frame.loopCounter <= targetCount) {
+                for (Node.Connection c : conns) {
+                    if ("body".equalsIgnoreCase(c.getConditionValue()) || c.getConditionValue() == null || c.getConditionValue().isEmpty()) {
+                        if (frame.loopCounter == 1 || "body".equalsIgnoreCase(c.getConditionValue())) {
+                            return graph.getNode(c.getTarget());
+                        }
+                    }
+                }
+            } else {
+                for (Node.Connection c : conns) {
+                    if ("done".equalsIgnoreCase(c.getConditionValue())) {
+                        return graph.getNode(c.getTarget());
+                    }
+                }
+            }
+            // fallback
+            if (!conns.isEmpty()) return graph.getNode(conns.get(0).getTarget());
+            return null;
+        }
+
+        // Обычные ноды — берём первое соединение
+        if (!conns.isEmpty()) {
+            return graph.getNode(conns.get(0).getTarget());
+        }
+        return null;
     }
 
     private ScriptNodeType getNodeType(Node node) {
-        try {
-            return ScriptNodeType.valueOf(node.getType());
-        } catch (Exception e) {
-            return ScriptNodeType.STOP;
-        }
-    }
-
-    private void advance() {
-        if (currentNode == null) {
-            finish();
-            return;
-        }
-        ScriptNodeType type = getNodeType(currentNode);
-        Node.Connection next = null;
-        if (type == ScriptNodeType.IF) {
-            boolean condition = evaluateCondition(currentNode);
-            for (Node.Connection c : currentNode.getConnections()) {
-                if (condition && "true".equalsIgnoreCase(c.getConditionValue())) {
-                    next = c;
-                    break;
-                }
-                if (!condition && "false".equalsIgnoreCase(c.getConditionValue())) {
-                    next = c;
-                    break;
-                }
-            }
-        } else if (type == ScriptNodeType.RANDOM) {
-            List<Node.Connection> conns = currentNode.getConnections();
-            if (!conns.isEmpty()) {
-                next = conns.get(level.getRandom().nextInt(conns.size()));
-            }
-        } else if (type == ScriptNodeType.LOOP) {
-            String targetId = currentNode.getParamOrDefault("loopTarget", graph.getStartNodeId());
-            currentNode = graph.getNode(targetId);
-            if (currentNode != null) {
-                executeCurrent();
-            } else {
-                finish();
-            }
-            return;
-        } else {
-            if (!currentNode.getConnections().isEmpty()) {
-                next = currentNode.getConnections().get(0);
-            }
-        }
-        if (next != null) {
-            currentNode = graph.getNode(next.getTarget());
-            if (currentNode != null) {
-                executeCurrent();
-            } else {
-                finish();
-            }
-        } else {
-            finish();
-        }
+        try { return ScriptNodeType.valueOf(node.getType()); }
+        catch (Exception e) { return ScriptNodeType.STOP; }
     }
 
     private void executeNode(Node node) {
         ScriptNodeType type = getNodeType(node);
         switch (type) {
-            case START, DELAY, IF, THEN, STOP -> {}
+            case START, DELAY, IF, STOP -> {}
             case CAMERA -> {
                 try {
                     double x = Double.parseDouble(node.getParam("x"));
@@ -179,14 +234,13 @@ public class ScriptGraphExecutor {
                     float yaw = Float.parseFloat(node.getParam("yaw"));
                     float pitch = Float.parseFloat(node.getParam("pitch"));
                     int duration = Integer.parseInt(node.getParam("duration"));
-                    IScriptNetwork.sendToPlayer(new ClientEffectPacket(ClientEffectPacket.Type.CAMERA_MOVE, ClientEffectPacket.cameraMoveToTag(x, y, z, yaw, pitch, duration)), player);
-                } catch (NumberFormatException e) {
-                    IScriptMod.LOGGER.error("Invalid camera params");
-                }
+                    IScriptNetwork.sendToPlayer(new ClientEffectPacket(ClientEffectPacket.Type.CAMERA_MOVE,
+                            ClientEffectPacket.cameraMoveToTag(x, y, z, yaw, pitch, duration)), player);
+                } catch (NumberFormatException e) { IScriptMod.LOGGER.error("Invalid camera params"); }
             }
             case DIALOG -> {
                 String dialogId = node.getParam("dialogId");
-                if (!dialogId.isEmpty()) {
+                if (dialogId != null && !dialogId.isEmpty()) {
                     DialogData dialog = DataAccess.dialog(dialogId);
                     if (dialog != null) {
                         DialogData filtered = new DialogData();
@@ -197,7 +251,8 @@ public class ScriptGraphExecutor {
                         for (DialogData.DialogOption opt : dialog.getAvailableOptions(player)) {
                             filtered.getOptions().add(opt);
                         }
-                        IScriptNetwork.sendToPlayer(new OpenGuiPacket(OpenGuiPacket.Type.DIALOG, OpenGuiPacket.dialogToTag(filtered)), player);
+                        IScriptNetwork.sendToPlayer(new OpenGuiPacket(OpenGuiPacket.Type.DIALOG,
+                                OpenGuiPacket.dialogToTag(filtered)), player);
                         waitingForDialog = true;
                     }
                 }
@@ -206,9 +261,7 @@ public class ScriptGraphExecutor {
                 String itemId = node.getParam("itemId");
                 int count = Integer.parseInt(node.getParamOrDefault("count", "1"));
                 ItemStack stack = resolveItem(itemId, count);
-                if (!stack.isEmpty()) {
-                    player.getInventory().add(stack);
-                }
+                if (!stack.isEmpty()) player.getInventory().add(stack);
             }
             case SPAWN_ENTITY -> {
                 try {
@@ -224,9 +277,7 @@ public class ScriptGraphExecutor {
                             level.addFreshEntity(entity);
                         }
                     }
-                } catch (Exception e) {
-                    IScriptMod.LOGGER.error("Spawn entity failed: {}", e.getMessage());
-                }
+                } catch (Exception e) { IScriptMod.LOGGER.error("Spawn entity failed: {}", e.getMessage()); }
             }
             case SET_BLOCK -> {
                 try {
@@ -238,9 +289,7 @@ public class ScriptGraphExecutor {
                         double z = Double.parseDouble(node.getParam("z"));
                         level.setBlockAndUpdate(new BlockPos((int) x, (int) y, (int) z), block.defaultBlockState());
                     }
-                } catch (Exception e) {
-                    IScriptMod.LOGGER.error("Set block failed: {}", e.getMessage());
-                }
+                } catch (Exception e) { IScriptMod.LOGGER.error("Set block failed: {}", e.getMessage()); }
             }
             case PLAY_SOUND -> {
                 try {
@@ -252,13 +301,11 @@ public class ScriptGraphExecutor {
                         double z = Double.parseDouble(node.getParamOrDefault("z", String.valueOf(player.getZ())));
                         level.playSound(null, x, y, z, sound, SoundSource.BLOCKS, 1.0f, 1.0f);
                     }
-                } catch (Exception e) {
-                    IScriptMod.LOGGER.error("Play sound failed: {}", e.getMessage());
-                }
+                } catch (Exception e) { IScriptMod.LOGGER.error("Play sound failed: {}", e.getMessage()); }
             }
             case RUN_COMMAND -> {
                 String command = node.getParam("command");
-                if (!command.isEmpty()) {
+                if (command != null && !command.isEmpty()) {
                     level.getServer().getCommands().performPrefixedCommand(
                             player.createCommandSourceStack().withLevel(level).withPosition(player.position()),
                             command.replace("@p", player.getGameProfile().getName())
@@ -275,9 +322,7 @@ public class ScriptGraphExecutor {
                         double z = Double.parseDouble(node.getParam("z"));
                         level.sendParticles(simple, x, y, z, 1, 0, 0, 0, 0);
                     }
-                } catch (Exception e) {
-                    IScriptMod.LOGGER.error("Particle failed: {}", e.getMessage());
-                }
+                } catch (Exception e) { IScriptMod.LOGGER.error("Particle failed: {}", e.getMessage()); }
             }
             case TELEPORT -> {
                 try {
@@ -285,26 +330,24 @@ public class ScriptGraphExecutor {
                     double y = Double.parseDouble(node.getParam("y"));
                     double z = Double.parseDouble(node.getParam("z"));
                     player.teleportTo(x, y, z);
-                } catch (NumberFormatException e) {
-                    IScriptMod.LOGGER.error("Invalid teleport params");
-                }
+                } catch (NumberFormatException e) { IScriptMod.LOGGER.error("Invalid teleport params"); }
             }
             case SET_GAMEMODE -> {
                 String mode = node.getParam("mode");
-                switch (mode.toLowerCase()) {
-                    case "survival" -> player.setGameMode(GameType.SURVIVAL);
-                    case "creative" -> player.setGameMode(GameType.CREATIVE);
-                    case "adventure" -> player.setGameMode(GameType.ADVENTURE);
-                    case "spectator" -> player.setGameMode(GameType.SPECTATOR);
+                if (mode != null) {
+                    switch (mode.toLowerCase()) {
+                        case "survival" -> player.setGameMode(GameType.SURVIVAL);
+                        case "creative" -> player.setGameMode(GameType.CREATIVE);
+                        case "adventure" -> player.setGameMode(GameType.ADVENTURE);
+                        case "spectator" -> player.setGameMode(GameType.SPECTATOR);
+                    }
                 }
             }
             case SET_HEALTH -> {
                 try {
                     float hp = Float.parseFloat(node.getParam("health"));
                     player.setHealth(hp);
-                } catch (NumberFormatException e) {
-                    IScriptMod.LOGGER.error("Invalid health param");
-                }
+                } catch (NumberFormatException e) { IScriptMod.LOGGER.error("Invalid health param"); }
             }
             case FREEZE -> IScriptNetwork.sendToPlayer(new ClientEffectPacket(ClientEffectPacket.Type.FREEZE_PLAYER, new CompoundTag()), player);
             case UNFREEZE -> IScriptNetwork.sendToPlayer(new ClientEffectPacket(ClientEffectPacket.Type.UNFREEZE_PLAYER, new CompoundTag()), player);
@@ -313,12 +356,8 @@ public class ScriptGraphExecutor {
                     int entityId = Integer.parseInt(node.getParam("entityId"));
                     String anim = node.getParam("animation");
                     Entity entity = level.getEntity(entityId);
-                    if (entity instanceof com.iscript.imson.entity.IScriptNPCEntity npc) {
-                        npc.playAnimation(anim);
-                    }
-                } catch (NumberFormatException e) {
-                    IScriptMod.LOGGER.error("Invalid entityId");
-                }
+                    if (entity instanceof com.iscript.imson.entity.IScriptNPCEntity npc) npc.playAnimation(anim);
+                } catch (NumberFormatException e) { IScriptMod.LOGGER.error("Invalid entityId"); }
             }
             case NPC_MOVE -> {
                 try {
@@ -327,12 +366,8 @@ public class ScriptGraphExecutor {
                     double y = Double.parseDouble(node.getParam("y"));
                     double z = Double.parseDouble(node.getParam("z"));
                     Entity entity = level.getEntity(entityId);
-                    if (entity instanceof com.iscript.imson.entity.IScriptNPCEntity npc) {
-                        npc.teleportTo(x, y, z);
-                    }
-                } catch (NumberFormatException e) {
-                    IScriptMod.LOGGER.error("Invalid NPC move params");
-                }
+                    if (entity instanceof com.iscript.imson.entity.IScriptNPCEntity npc) npc.teleportTo(x, y, z);
+                } catch (NumberFormatException e) { IScriptMod.LOGGER.error("Invalid NPC move params"); }
             }
             case QUEST_START -> DataAccess.startQuest(level, player.getUUID(), node.getParam("questId"));
             case QUEST_COMPLETE -> {
@@ -342,25 +377,23 @@ public class ScriptGraphExecutor {
             case SET_DATA -> {
                 String key = node.getParam("key");
                 String value = node.getParam("value");
-                player.getCapability(com.iscript.imson.capability.ModCapabilities.PLAYER_DATA).ifPresent(data -> data.setString(key, value));
+                if (key != null) player.getCapability(com.iscript.imson.capability.ModCapabilities.PLAYER_DATA).ifPresent(data -> data.setString(key, value));
             }
             case SET_FACTION -> {
                 String faction = node.getParam("faction");
-                player.getCapability(com.iscript.imson.capability.ModCapabilities.PLAYER_DATA).ifPresent(data -> data.setFaction(faction));
+                if (faction != null) player.getCapability(com.iscript.imson.capability.ModCapabilities.PLAYER_DATA).ifPresent(data -> data.setFaction(faction));
             }
             case SET_REPUTATION -> {
                 try {
                     int rep = Integer.parseInt(node.getParam("value"));
                     player.getCapability(com.iscript.imson.capability.ModCapabilities.PLAYER_DATA).ifPresent(data -> data.setReputation(rep));
-                } catch (NumberFormatException e) {
-                    IScriptMod.LOGGER.error("Invalid reputation value");
-                }
+                } catch (NumberFormatException e) { IScriptMod.LOGGER.error("Invalid reputation value"); }
             }
             case SCRIPT_JS -> {
                 String script = node.getParam("script");
                 String functionName = node.getParam("function");
                 ScriptEngine engine = ScriptEngine.getInstance();
-                if (engine.isAvailable()) {
+                if (engine != null && engine.isAvailable()) {
                     try {
                         if (functionName != null && !functionName.isEmpty()) {
                             String scriptId = graph.getId() + ":" + functionName;
@@ -369,9 +402,7 @@ public class ScriptGraphExecutor {
                         } else {
                             engine.execute(script, player, level);
                         }
-                    } catch (Exception e) {
-                        IScriptMod.LOGGER.error("Script node JS error: {}", e.getMessage());
-                    }
+                    } catch (Exception e) { IScriptMod.LOGGER.error("Script node JS error: {}", e.getMessage()); }
                 }
             }
         }
@@ -381,15 +412,13 @@ public class ScriptGraphExecutor {
         String conditionType = node.getParam("conditionType");
         String value = node.getParam("value");
         String compare = node.getParamOrDefault("compare", "");
-        return switch (conditionType.toLowerCase()) {
+        return switch (conditionType != null ? conditionType.toLowerCase() : "") {
             case "has_item" -> {
                 int count = Integer.parseInt(node.getParamOrDefault("count", "1"));
                 Item target = ForgeRegistries.ITEMS.getValue(new ResourceLocation(value));
                 int found = 0;
                 for (ItemStack stack : player.getInventory().items) {
-                    if (!stack.isEmpty() && target != null && stack.getItem() == target) {
-                        found += stack.getCount();
-                    }
+                    if (!stack.isEmpty() && target != null && stack.getItem() == target) found += stack.getCount();
                 }
                 yield found >= count;
             }
@@ -423,8 +452,7 @@ public class ScriptGraphExecutor {
                     int rbeChunkZ = rbePos.getZ() >> 4;
                     if (Math.abs(rbeChunkX - playerChunkX) > 2 || Math.abs(rbeChunkZ - playerChunkZ) > 2) continue;
                     if (rbe.getData().getId().equals(value) && rbe.getData().isInside(rbePos, player.position())) {
-                        inside = true;
-                        break;
+                        inside = true; break;
                     }
                 }
                 yield inside;
@@ -432,6 +460,21 @@ public class ScriptGraphExecutor {
             case "random" -> {
                 double chance = Double.parseDouble(node.getParamOrDefault("chance", "0.5"));
                 yield level.getRandom().nextDouble() < chance;
+            }
+            case "inline_js" -> {
+                // NEW: выполняет JS-код и возвращает boolean результат
+                String js = node.getParam("inlineScript");
+                if (js == null || js.isEmpty()) yield false;
+                ScriptEngine engine = ScriptEngine.getInstance();
+                if (engine == null || !engine.isAvailable()) yield false;
+                try {
+                    Object result = engine.execute("__inline_cond_" + System.currentTimeMillis(),
+                            "(function(){" + js + "})()", player, level);
+                    yield Boolean.TRUE.equals(result) || (result instanceof Number n && n.doubleValue() != 0);
+                } catch (Exception e) {
+                    IScriptMod.LOGGER.error("Inline JS condition error: {}", e.getMessage());
+                    yield false;
+                }
             }
             default -> false;
         };

@@ -616,5 +616,21 @@
     "iscript.event.node.type.set_faction": "Set Faction",
     "iscript.event.node.type.set_reputation": "Set Reputation",
     "iscript.event.node.type.world_set": "World Set",
-    "iscript.event.node.type.script_js": "Script JS"
+    "iscript.event.node.type.script_js": "Script JS",
+    "iscript.morph.title": "Select Morph",
+    "iscript.morph.search": "Search morphs...",
+    "iscript.morph.categories": "Categories",
+    "iscript.morph.category.all": "All",
+    "iscript.morph.category.custom": "Custom",
+    "iscript.morph.no_model": "No model selected",
+    "iscript.morph.model_not_found": "Model not found",
+    "iscript.morph.scale": "Scale",
+    "iscript.morph.animation": "Animation Name",
+    "iscript.morph.visible": "Visibility",
+    "iscript.morph.visible.on": "Visible: ON",
+    "iscript.morph.visible.off": "Visible: OFF",
+    "iscript.morph.acquire": "Apply",
+    "iscript.morph.edit": "Edit",
+    "iscript.morph.close": "Close",
+    "iscript.morph.rotate_hint": "Rotation: X/Y/Z"
 }
