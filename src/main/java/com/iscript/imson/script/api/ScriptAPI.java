@@ -35,7 +35,7 @@ public class ScriptAPI {
     protected final String scriptId;
 
     @HostAccess.Export
-    public final PlayerAPI playerApi;
+    public final PlayerAPI pl;
     @HostAccess.Export
     public final WorldAPI world;
     @HostAccess.Export
@@ -67,7 +67,7 @@ public class ScriptAPI {
         this.exec = exec;
         this.scheduler = scheduler;
         this.scriptId = scriptId;
-        this.playerApi = new PlayerAPI(this);
+        this.pl = new PlayerAPI(this);
         this.world = new WorldAPI(this);
         this.state = new StateAPI(this);
         this.quest = new QuestAPI(this);
@@ -84,7 +84,7 @@ public class ScriptAPI {
 
     @HostAccess.Export
     public PlayerAPI getPlayer() {
-        return playerApi;
+        return pl;
     }
 
     @HostAccess.Export
@@ -99,22 +99,22 @@ public class ScriptAPI {
 
     @HostAccess.Export
     public void sendMessage(String text) {
-        playerApi.sendMessage(text);
+        pl.sendMessage(text);
     }
 
     @HostAccess.Export
     public void sendMessage(String text, String color) {
-        playerApi.sendMessage(text, color);
+        pl.sendMessage(text, color);
     }
 
     @HostAccess.Export
     public void giveItem(String itemId, int count) {
-        playerApi.giveItem(itemId, count);
+        pl.giveItem(itemId, count);
     }
 
     @HostAccess.Export
     public void teleport(double x, double y, double z) {
-        playerApi.teleport(x, y, z);
+        pl.teleport(x, y, z);
     }
 
     @HostAccess.Export
@@ -124,22 +124,22 @@ public class ScriptAPI {
 
     @HostAccess.Export
     public double getX() {
-        return playerApi.getX();
+        return pl.getX();
     }
 
     @HostAccess.Export
     public double getY() {
-        return playerApi.getY();
+        return pl.getY();
     }
 
     @HostAccess.Export
     public double getZ() {
-        return playerApi.getZ();
+        return pl.getZ();
     }
 
     @HostAccess.Export
     public String getName() {
-        return playerApi.getName();
+        return pl.getName();
     }
 
     @HostAccess.Export
@@ -154,42 +154,42 @@ public class ScriptAPI {
 
     @HostAccess.Export
     public void setData(String key, String value) {
-        playerApi.setData(key, value);
+        pl.setData(key, value);
     }
 
     @HostAccess.Export
     public String getData(String key) {
-        return playerApi.getData(key);
+        return pl.getData(key);
     }
 
     @HostAccess.Export
     public void setIntData(String key, int value) {
-        playerApi.setIntData(key, value);
+        pl.setIntData(key, value);
     }
 
     @HostAccess.Export
     public int getIntData(String key) {
-        return playerApi.getIntData(key);
+        return pl.getIntData(key);
     }
 
     @HostAccess.Export
     public void setFaction(String faction) {
-        playerApi.setFaction(faction);
+        pl.setFaction(faction);
     }
 
     @HostAccess.Export
     public String getFaction() {
-        return playerApi.getFaction();
+        return pl.getFaction();
     }
 
     @HostAccess.Export
     public void setReputation(int value) {
-        playerApi.setReputation(value);
+        pl.setReputation(value);
     }
 
     @HostAccess.Export
     public int getReputation() {
-        return playerApi.getReputation();
+        return pl.getReputation();
     }
 
     @HostAccess.Export
@@ -219,42 +219,42 @@ public class ScriptAPI {
 
     @HostAccess.Export
     public void setHealth(double hp) {
-        playerApi.setHealth(hp);
+        pl.setHealth(hp);
     }
 
     @HostAccess.Export
     public double getHealth() {
-        return playerApi.getHealth();
+        return pl.getHealth();
     }
 
     @HostAccess.Export
     public void setGamemode(String mode) {
-        playerApi.setGamemode(mode);
+        pl.setGamemode(mode);
     }
 
     @HostAccess.Export
     public boolean hasItem(String itemId, int count) {
-        return playerApi.hasItem(itemId, count);
+        return pl.hasItem(itemId, count);
     }
 
     @HostAccess.Export
     public void clearInventory() {
-        playerApi.clearInventory();
+        pl.clearInventory();
     }
 
     @HostAccess.Export
     public void cameraMove(double x, double y, double z, float yaw, float pitch, int durationTicks) {
-        playerApi.cameraMove(x, y, z, yaw, pitch, durationTicks);
+        pl.cameraMove(x, y, z, yaw, pitch, durationTicks);
     }
 
     @HostAccess.Export
     public void cameraReset() {
-        playerApi.cameraReset();
+        pl.cameraReset();
     }
 
     @HostAccess.Export
     public void cameraReset(Player target) {
-        playerApi.cameraReset(target);
+        pl.cameraReset(target);
     }
 
     @HostAccess.Export
@@ -427,92 +427,92 @@ public class ScriptAPI {
 
     @HostAccess.Export
     public int getGameMode() {
-        return playerApi.getGameMode();
+        return pl.getGameMode();
     }
 
     @HostAccess.Export
     public void setGameMode(int mode) {
-        playerApi.setGameMode(mode);
+        pl.setGameMode(mode);
     }
 
     @HostAccess.Export
     public int getHotbarIndex() {
-        return playerApi.getHotbarIndex();
+        return pl.getHotbarIndex();
     }
 
     @HostAccess.Export
     public void setHotbarIndex(int index) {
-        playerApi.setHotbarIndex(index);
+        pl.setHotbarIndex(index);
     }
 
     @HostAccess.Export
     public int getXpLevel() {
-        return playerApi.getXpLevel();
+        return pl.getXpLevel();
     }
 
     @HostAccess.Export
     public void setXpLevel(int lvl) {
-        playerApi.setXpLevel(lvl);
+        pl.setXpLevel(lvl);
     }
 
     @HostAccess.Export
     public void addXp(int amount) {
-        playerApi.addXp(amount);
+        pl.addXp(amount);
     }
 
     @HostAccess.Export
     public void removeXp(int amount) {
-        playerApi.removeXp(amount);
+        pl.removeXp(amount);
     }
 
     @HostAccess.Export
     public void setXp(int amount) {
-        playerApi.setXp(amount);
+        pl.setXp(amount);
     }
 
     @HostAccess.Export
     public void setSpawnPoint(double x, double y, double z) {
-        playerApi.setSpawnPoint(x, y, z);
+        pl.setSpawnPoint(x, y, z);
     }
 
     @HostAccess.Export
     public void sendTitle(String text) {
-        playerApi.sendTitle(text);
+        pl.sendTitle(text);
     }
 
     @HostAccess.Export
     public void sendSubtitle(String text) {
-        playerApi.sendSubtitle(text);
+        pl.sendSubtitle(text);
     }
 
     @HostAccess.Export
     public void sendActionBar(String text) {
-        playerApi.sendActionBar(text);
+        pl.sendActionBar(text);
     }
 
     @HostAccess.Export
     public void stopSound(String soundId) {
-        playerApi.stopSound(soundId);
+        pl.stopSound(soundId);
     }
 
     @HostAccess.Export
     public void stopAllSound() {
-        playerApi.stopAllSound();
+        pl.stopAllSound();
     }
 
     @HostAccess.Export
     public boolean isPlayer() {
-        return playerApi.isPlayer();
+        return pl.isPlayer();
     }
 
     @HostAccess.Export
     public ItemStack getMainItem() {
-        return playerApi.getMainItem();
+        return pl.getMainItem();
     }
 
     @HostAccess.Export
     public void setMainItem(String itemId) {
-        playerApi.setMainItem(itemId);
+        pl.setMainItem(itemId);
     }
 
     @HostAccess.Export

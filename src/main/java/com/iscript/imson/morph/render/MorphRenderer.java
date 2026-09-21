@@ -13,38 +13,34 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.EntityModel;
-import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
-
 import java.awt.image.BufferedImage;
 import java.util.HashMap;
 import java.util.Map;
 
 public class MorphRenderer {
+    public static boolean isRenderingDummyShadowBlock = false;
     private static final Map<String, ResourceLocation> TEXTURE_LOCATIONS = new HashMap<>();
     private static final Map<String, DynamicTexture> DYNAMIC_TEXTURES = new HashMap<>();
-
-    // ========== WORLD RENDERING (для рендера в мире) ==========
 
     public static void render(Entity entity, MorphData morphData, PoseStack poseStack,
                               MultiBufferSource buffer, int packedLight, float partialTick) {
         if (!morphData.isMorphed() || !morphData.isVisible()) return;
-
         String modelId = morphData.getModelId();
-
-        // Проверяем, это entity модель или custom geo модель
         if (modelId.startsWith("entity:")) {
             renderEntityModel(entity, morphData, poseStack, buffer, packedLight, partialTick);
         } else {
@@ -60,13 +56,20 @@ public class MorphRenderer {
             return;
         }
 
-        ResourceLocation texture = getTextureLocation(morphData.getModelId());
-        if (texture == null) {
-            texture = new ResourceLocation("minecraft", "textures/block/stone.png");
+        ResourceLocation texture;
+        String customTex = morphData.getCustomTexture();
+        if (customTex != null && !customTex.isEmpty()) {
+            try {
+                texture = new ResourceLocation(customTex);
+            } catch (Exception e) {
+                texture = getTextureLocation(morphData.getModelId());
+            }
+        } else {
+            texture = getTextureLocation(morphData.getModelId());
         }
 
         float scale = morphData.getScale();
-        float time = morphData.getAnimationTick() / 20f;
+        float time = (morphData.getAnimationTick() + partialTick) / 20f;
         AnimationController controller = morphData.getAnimationController();
 
         poseStack.pushPose();
@@ -77,7 +80,7 @@ public class MorphRenderer {
         VertexConsumer builder = buffer.getBuffer(RenderType.entityCutoutNoCull(texture));
         for (Bone bone : model.getBones()) {
             if (bone.getParent().isEmpty()) {
-                renderBone(bone, model, controller, time, poseStack, builder, packedLight, OverlayTexture.NO_OVERLAY, 1.0f);
+                renderBone(bone, model, controller, time, poseStack, builder, packedLight, OverlayTexture.NO_OVERLAY, 1.0f, entity, partialTick);
             }
         }
         poseStack.popPose();
@@ -86,42 +89,62 @@ public class MorphRenderer {
     @SuppressWarnings("unchecked")
     private static void renderEntityModel(Entity entity, MorphData morphData, PoseStack poseStack,
                                           MultiBufferSource buffer, int packedLight, float partialTick) {
-        String entityTypeStr = morphData.getModelId().substring(7); // убираем "entity:"
+        String entityTypeStr = morphData.getModelId().substring(7);
         try {
             ResourceLocation rl = new ResourceLocation(entityTypeStr);
             EntityType<?> type = EntityType.byString(rl.toString()).orElse(null);
-            if (type == null) return;
+            if (type == null || Minecraft.getInstance().level == null) return;
 
-            EntityModel<?> model = MorphManager.getEntityModel(type);
-            if (model == null) return;
+            Entity dummyEntity = type.create(Minecraft.getInstance().level);
+            if (dummyEntity == null) return;
 
-            ResourceLocation texture = MorphManager.getEntityTexture(type);
-            if (texture == null) return;
+            dummyEntity.copyPosition(entity);
+            dummyEntity.xOld = entity.xOld;
+            dummyEntity.yOld = entity.yOld;
+            dummyEntity.zOld = entity.zOld;
+
+            float lerpYRot = Mth.rotLerp(partialTick, entity.yRotO, entity.getYRot());
+            dummyEntity.setYRot(lerpYRot);
+            dummyEntity.yRotO = lerpYRot;
+
+            float lerpXRot = Mth.lerp(partialTick, entity.xRotO, entity.getXRot());
+            dummyEntity.setXRot(lerpXRot);
+            dummyEntity.xRotO = lerpXRot;
+
+            if (entity instanceof LivingEntity livingSource && dummyEntity instanceof LivingEntity livingDummy) {
+                float lerpHeadRot = Mth.rotLerp(partialTick, livingSource.yHeadRotO, livingSource.yHeadRot);
+                livingDummy.yHeadRot = lerpHeadRot;
+                livingDummy.yHeadRotO = lerpHeadRot;
+                float lerpBodyRot = Mth.rotLerp(partialTick, livingSource.yBodyRotO, livingSource.yBodyRot);
+                livingDummy.yBodyRot = lerpBodyRot;
+                livingDummy.yBodyRotO = lerpBodyRot;
+                livingDummy.walkAnimation.setSpeed(livingSource.walkAnimation.speed(partialTick));
+                livingDummy.walkAnimation.position(livingSource.walkAnimation.position(partialTick));
+            }
 
             poseStack.pushPose();
             float scale = morphData.getScale();
             poseStack.scale(scale, scale, scale);
 
-            float yaw = Mth.rotLerp(partialTick, entity.yRotO, entity.getYRot());
-            float pitch = Mth.rotLerp(partialTick, entity.xRotO, entity.getXRot());
-
-            poseStack.mulPose(Axis.YP.rotationDegrees(180.0F - yaw));
-            poseStack.mulPose(Axis.XP.rotationDegrees(pitch));
-
-            VertexConsumer builder = buffer.getBuffer(RenderType.entityCutoutNoCull(texture));
-            model.renderToBuffer(poseStack, builder, packedLight, OverlayTexture.NO_OVERLAY, 1.0f, 1.0f, 1.0f, 1.0f);
-            poseStack.popPose();
+            EntityRenderDispatcher dispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
+            try {
+                isRenderingDummyShadowBlock = true;
+                dispatcher.render(dummyEntity, 0.0, 0.0, 0.0, lerpYRot, 0.0f, poseStack, buffer, packedLight);
+            } catch (Exception e) {
+                IScriptMod.LOGGER.error("Ошибка при рендере существа внутри матрицы: {}", entityTypeStr, e);
+            } finally {
+                isRenderingDummyShadowBlock = false;
+                poseStack.popPose();
+                dummyEntity.discard();
+            }
         } catch (Exception e) {
-            IScriptMod.LOGGER.error("Failed to render entity model: {}", entityTypeStr, e);
+            IScriptMod.LOGGER.error("Критическая ошибка инициализации модели: {}", entityTypeStr, e);
         }
     }
-
-    // ========== GUI RENDERING (для превью в GUI) ==========
 
     public static void renderInGui(GeoModel model, PoseStack poseStack, VertexConsumer builder,
                                    int packedLight, int packedOverlay, float alpha) {
         if (model == null) return;
-
         for (Bone bone : model.getBones()) {
             if (bone.getParent().isEmpty()) {
                 renderBoneGui(bone, model, poseStack, builder, packedLight, packedOverlay, alpha);
@@ -133,31 +156,39 @@ public class MorphRenderer {
                                          int packedLight, int packedOverlay, float alpha) {
         EntityModel<?> model = MorphManager.getEntityModel(type);
         if (model == null) return;
-
         ResourceLocation texture = MorphManager.getEntityTexture(type);
         if (texture == null) return;
-
         model.renderToBuffer(poseStack, builder, packedLight, packedOverlay, 1.0f, 1.0f, 1.0f, alpha);
     }
 
-    // ========== HELPER METHODS ==========
-
-    private static void renderBone(Bone bone, GeoModel model, AnimationController controller, float time,
-                                   PoseStack poseStack, VertexConsumer builder, int packedLight, int packedOverlay, float alpha) {
+    public static void renderBone(Bone bone, GeoModel model, AnimationController controller, float time,
+                                  PoseStack poseStack, VertexConsumer builder, int packedLight, int packedOverlay, float alpha,
+                                  Entity entity, float partialTick) {
         poseStack.pushPose();
-        float[] animRot = controller.getBoneRotation(bone.getName(), time);
-        float[] animPos = controller.getBonePosition(bone.getName(), time);
-        float[] animScale = controller.getBoneScale(bone.getName(), time);
+        float[] animRot = controller != null ? controller.getBoneRotation(bone.getName(), time) : new float[]{0,0,0};
+        float[] animPos = controller != null ? controller.getBonePosition(bone.getName(), time) : new float[]{0,0,0};
+        float[] animScale = controller != null ? controller.getBoneScale(bone.getName(), time) : new float[]{1,1,1};
+
         float[] pivot = bone.getPivot();
         float[] baseRot = bone.getRotation();
 
         if (animPos[0] != 0f || animPos[1] != 0f || animPos[2] != 0f) {
             poseStack.translate(-animPos[0] / 16f, animPos[1] / 16f, animPos[2] / 16f);
         }
+
         poseStack.translate(pivot[0] / 16f, pivot[1] / 16f, pivot[2] / 16f);
+
         float rx = (float) Math.toRadians(baseRot[0] - animRot[0]);
         float ry = (float) Math.toRadians(baseRot[1] - animRot[1]);
         float rz = (float) Math.toRadians(baseRot[2] + animRot[2]);
+
+        if ("head".equalsIgnoreCase(bone.getName()) && entity instanceof LivingEntity living) {
+            float headYaw = Mth.rotLerp(partialTick, living.yHeadRotO, living.yHeadRot) - Mth.rotLerp(partialTick, living.yRotO, living.getYRot());
+            float headPitch = Mth.lerp(partialTick, living.xRotO, living.getXRot());
+            ry += (float) Math.toRadians(-headYaw);
+            rx += (float) Math.toRadians(headPitch);
+        }
+
         poseStack.mulPose(new Quaternionf().rotationZYX(rz, ry, rx));
         poseStack.scale(animScale[0], animScale[1], animScale[2]);
         poseStack.translate(-pivot[0] / 16f, -pivot[1] / 16f, -pivot[2] / 16f);
@@ -166,7 +197,7 @@ public class MorphRenderer {
             renderCube(cube, model, poseStack, builder, packedLight, packedOverlay, alpha);
         }
         for (Bone child : bone.getChildren()) {
-            renderBone(child, model, controller, time, poseStack, builder, packedLight, packedOverlay, alpha);
+            renderBone(child, model, controller, time, poseStack, builder, packedLight, packedOverlay, alpha, entity, partialTick);
         }
         poseStack.popPose();
     }
@@ -176,12 +207,16 @@ public class MorphRenderer {
         poseStack.pushPose();
         float[] pivot = bone.getPivot();
         float[] baseRot = bone.getRotation();
+
         poseStack.translate(pivot[0] / 16f, pivot[1] / 16f, pivot[2] / 16f);
+
         float rx = (float) Math.toRadians(baseRot[0]);
         float ry = (float) Math.toRadians(baseRot[1]);
         float rz = (float) Math.toRadians(baseRot[2]);
+
         poseStack.mulPose(new Quaternionf().rotationZYX(rz, ry, rx));
         poseStack.translate(-pivot[0] / 16f, -pivot[1] / 16f, -pivot[2] / 16f);
+
         for (Cube cube : bone.getCubes()) {
             renderCube(cube, model, poseStack, builder, packedLight, packedOverlay, alpha);
         }
@@ -213,6 +248,7 @@ public class MorphRenderer {
 
         float texW = model.getTextureWidth();
         float texH = model.getTextureHeight();
+
         Matrix4f matrix = poseStack.last().pose();
         Vector3f normal = new Vector3f();
         float r = 1.0f, g = 1.0f, b = 1.0f;
@@ -234,14 +270,19 @@ public class MorphRenderer {
 
         float f_u1 = (u + sd) / texW, f_v1 = (v + sd) / texH;
         float f_u2 = (u + sd + su) / texW, f_v2 = (v + sd + sh) / texH;
+
         float b_u1 = (u + 2 * sd + su) / texW, b_v1 = (v + sd) / texH;
         float b_u2 = (u + 2 * sd + 2 * su) / texW, b_v2 = (v + sd + sh) / texH;
+
         float l_u1 = u / texW, l_v1 = (v + sd) / texH;
         float l_u2 = (u + sd) / texW, l_v2 = (v + sd + sh) / texH;
+
         float r_u1 = (u + sd + su) / texW, r_v1 = (v + sd) / texH;
         float r_u2 = (u + sd + su + sd) / texW, r_v2 = (v + sd + sh) / texH;
+
         float t_u1 = (u + sd) / texW, t_v1 = v / texH;
         float t_u2 = (u + sd + su) / texW, t_v2 = (v + sd) / texH;
+
         float bo_u1 = (u + sd + su) / texW, bo_v1 = v / texH;
         float bo_u2 = (u + sd + su + su) / texW, bo_v2 = (v + sd) / texH;
 
@@ -257,14 +298,19 @@ public class MorphRenderer {
 
         normal.set(0, 0, 1); poseStack.last().normal().transform(normal); normal.normalize();
         addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x1, y2, z2, x2i, y2, z2, x2i, y1, z2, x1, y1, z2, f_u1, f_v1, f_u2, f_v2, normal);
+
         normal.set(0, 0, -1); poseStack.last().normal().transform(normal); normal.normalize();
         addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x2i, y2, z1, x1, y2, z1, x1, y1, z1, x2i, y1, z1, b_u1, b_v1, b_u2, b_v2, normal);
+
         normal.set(1, 0, 0); poseStack.last().normal().transform(normal); normal.normalize();
         addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x2i, y2, z2, x2i, y2, z1, x2i, y1, z1, x2i, y1, z2, r_u1, r_v1, r_u2, r_v2, normal);
+
         normal.set(-1, 0, 0); poseStack.last().normal().transform(normal); normal.normalize();
         addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x1, y2, z1, x1, y2, z2, x1, y1, z2, x1, y1, z1, l_u1, l_v1, l_u2, l_v2, normal);
+
         normal.set(0, 1, 0); poseStack.last().normal().transform(normal); normal.normalize();
         addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x1, y2, z2, x2i, y2, z2, x2i, y2, z1, x1, y2, z1, t_u1, t_v1, t_u2, t_v2, normal);
+
         normal.set(0, -1, 0); poseStack.last().normal().transform(normal); normal.normalize();
         addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x1, y1, z1, x2i, y1, z1, x2i, y1, z2, x1, y1, z2, bo_u1, bo_v1, bo_u2, bo_v2, normal);
     }
@@ -279,10 +325,13 @@ public class MorphRenderer {
         float v1 = fuv.uv[1] / texH;
         float u2 = (fuv.uv[0] + fuv.uvSize[0]) / texW;
         float v2 = (fuv.uv[1] + fuv.uvSize[1]) / texH;
+
         if (mirror) { float t = u1; u1 = u2; u2 = t; }
+
         normal.set(nx, ny, nz);
         poseStack.last().normal().transform(normal);
         normal.normalize();
+
         addQuad(matrix, builder, packedLight, packedOverlay, r, g, b, alpha, x1, y1, z1, x2, y2, z2, x3, y3, z3, x4, y4, z4, u1, v1, u2, v2, normal);
     }
 
@@ -346,5 +395,26 @@ public class MorphRenderer {
         }
         DYNAMIC_TEXTURES.clear();
         TEXTURE_LOCATIONS.clear();
+    }
+
+    public static float getTargetShadowRadius(String modelId) {
+        if (modelId == null || !modelId.startsWith("entity:")) {
+            return 0.5f;
+        }
+        String entityTypeStr = modelId.substring(7);
+        try {
+            ResourceLocation rl = new ResourceLocation(entityTypeStr);
+            EntityType<?> type = EntityType.byString(rl.toString()).orElse(null);
+            if (type != null && Minecraft.getInstance().level != null) {
+                Entity dummy = type.create(Minecraft.getInstance().level);
+                if (dummy != null) {
+                    var renderer = Minecraft.getInstance().getEntityRenderDispatcher().getRenderer(dummy);
+                    float radius = ((com.iscript.imson.mixin.EntityRendererAccessor) renderer).getShadowRadius();
+                    dummy.discard();
+                    return radius;
+                }
+            }
+        } catch (Exception ignored) {}
+        return 0.5f;
     }
 }
